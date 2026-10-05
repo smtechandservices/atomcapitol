@@ -1,0 +1,52 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: var(--font-raleway), ui-sans-serif, system-ui, sans-serif;
+
+  /* Atom Capitol brand gold, sampled from atomcapitol.com */
+  --color-gold-50: #fdf8ef;
+  --color-gold-100: #faefd8;
+  --color-gold-200: #f3dcac;
+  --color-gold-300: #ecc57a;
+  --color-gold-400: #e6bd63;
+  --color-gold-500: #e1ad50;
+  --color-gold-600: #cf9636;
+  --color-gold-700: #ac7a2c;
+  --color-gold-800: #8a6224;
+  --color-gold-900: #6f4f1f;
+
+  /* Deep navy/charcoal used in the site's dark sections */
+  --color-ink-50: #eef1f5;
+  --color-ink-100: #d8dee6;
+  --color-ink-200: #aab6c4;
+  --color-ink-300: #7d8fa3;
+  --color-ink-400: #4d5f75;
+  --color-ink-500: #2f3f52;
+  --color-ink-600: #223850;
+  --color-ink-700: #172535;
+  --color-ink-800: #11171d;
+  --color-ink-900: #0b0f14;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background-color: var(--color-ink-50);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background-color: var(--color-ink-200);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
