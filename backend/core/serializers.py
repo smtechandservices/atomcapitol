@@ -56,6 +56,8 @@ class PublicSiteSettingsSerializer(serializers.ModelSerializer):
 
 class AuditLogSerializer(serializers.ModelSerializer):
     actor_name = serializers.SerializerMethodField()
+    actor_email = serializers.SerializerMethodField()
+    target_label = serializers.SerializerMethodField()
 
     class Meta:
         model = AuditLog
@@ -63,9 +65,11 @@ class AuditLogSerializer(serializers.ModelSerializer):
             "id",
             "actor",
             "actor_name",
+            "actor_email",
             "action",
             "target_type",
             "target_id",
+            "target_label",
             "details",
             "ip_address",
             "created_at",
@@ -73,3 +77,10 @@ class AuditLogSerializer(serializers.ModelSerializer):
 
     def get_actor_name(self, obj):
         return obj.actor.get_full_name() or obj.actor.email if obj.actor else "System"
+
+    def get_actor_email(self, obj):
+        return obj.actor.email if obj.actor else None
+
+    def get_target_label(self, obj):
+        # Resolved in bulk per page by AuditLogListView (see target_labels); None when the record is gone.
+        return self.context.get("target_labels", {}).get((obj.target_type, obj.target_id))

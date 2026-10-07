@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import type { CustomerDetail, CustomerListItem, Paginated } from '@/types'
 
@@ -7,6 +7,9 @@ export interface CustomerFilters {
   search?: string
   kyc_status?: string
   is_active?: string
+  assigned_plot__isnull?: string
+  assigned_sales_person?: string | number
+  assigned_sales_person__isnull?: string
 }
 
 export function useCustomers(filters: CustomerFilters) {
@@ -16,6 +19,46 @@ export function useCustomers(filters: CustomerFilters) {
       const { data } = await api.get<Paginated<CustomerListItem>>('/admin/customers/', { params: filters })
       return data
     },
+  })
+}
+
+/** Headline counts for the customers page — reads `count` off page-1 requests. */
+export function useCustomerCounts() {
+  return useQuery({
+    queryKey: ['customers', 'counts'],
+    queryFn: async () => {
+      const filters: Record<string, Record<string, string>> = {
+        total: {},
+        notStarted: { kyc_status: 'NOT_STARTED' },
+        submitted: { kyc_status: 'SUBMITTED' },
+        approved: { kyc_status: 'APPROVED' },
+        rejected: { kyc_status: 'REJECTED' },
+        noPlot: { assigned_plot__isnull: 'true' },
+      }
+      const entries = await Promise.all(
+        Object.entries(filters).map(async ([key, params]) => {
+          const { data } = await api.get<Paginated<unknown>>('/admin/customers/', { params: { ...params, page: 1 } })
+          return [key, data.count] as const
+        }),
+      )
+      return Object.fromEntries(entries) as Record<keyof typeof filters, number>
+    },
+    staleTime: 30_000,
+  })
+}
+
+/** Picker lookup: searches all customers, or lists those without a plot when the search is empty. */
+export function useCustomerLookup(search: string, enabled = true) {
+  return useQuery({
+    queryKey: ['customers', 'lookup', search],
+    queryFn: async () => {
+      const params = search ? { search } : { assigned_plot__isnull: 'true' }
+      const { data } = await api.get<Paginated<CustomerListItem>>('/admin/customers/', { params })
+      return data
+    },
+    enabled,
+    placeholderData: keepPreviousData,
+    staleTime: 30_000,
   })
 }
 
@@ -59,5 +102,24 @@ export function useUpdateCustomer(id: number) {
       qc.invalidateQueries({ queryKey: ['customers'] })
       qc.invalidateQueries({ queryKey: ['customer', String(id)] })
     },
+  })
+}
+
+export function useCustomerDeleteCheck(id: number, enabled: boolean) {
+  return useQuery({
+    queryKey: ['customer', String(id), 'delete-check'],
+    queryFn: async () => (await api.get<{ can_delete: boolean; reasons: string[] }>(`/admin/customers/${id}/delete-check/`)).data,
+    enabled,
+    staleTime: 0,
+  })
+}
+
+export function useDeleteCustomer() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: number) => {
+      await api.delete(`/admin/customers/${id}/`)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['customers'] }),
   })
 }

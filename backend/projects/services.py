@@ -148,3 +148,43 @@ def bulk_assign_csv(file_obj, performed_by=None):
         except (Plot.DoesNotExist, KeyError, ValueError, InvalidOperation, AssignmentError) as exc:
             errors.append({"row": i, "error": str(exc)})
     return assigned, errors
+
+
+# ---------------------------------------------------------------------------
+# Deleting plots / projects (super admin) — only when nothing customer-facing would be lost.
+# ---------------------------------------------------------------------------
+def plot_delete_blockers(plot):
+    """Reasons this plot can't be deleted. Plot deletion cascades to milestones, payment proofs and
+    change requests, and unlinks buyers (who then lose app access) — so those must not exist."""
+    from payments.models import Milestone, PaymentProof
+
+    reasons = []
+    buyers = plot.customers.count()
+    if buyers:
+        reasons.append(f"{buyers} buyer{'s' if buyers != 1 else ''} assigned — unassign them first")
+    if plot.milestones.filter(status__in=[Milestone.Status.PAID, Milestone.Status.UNDER_REVIEW]).exists() or PaymentProof.objects.filter(milestone__plot=plot).exists():
+        reasons.append("has payment history (paid or submitted instalments)")
+    return reasons
+
+
+def project_delete_summary(project):
+    """What deleting the project would remove, and which plots block it."""
+    from payments.models import Milestone
+
+    plots = list(project.plots.all())
+    blocked = []
+    for plot in plots:
+        reasons = plot_delete_blockers(plot)
+        if reasons:
+            blocked.append({"plot_id": plot.id, "plot_number": plot.plot_number, "reasons": reasons})
+    return {
+        "can_delete": not blocked,
+        "blocked_plots": blocked[:20],
+        "blocked_count": len(blocked),
+        "will_delete": {
+            "plots": len(plots),
+            "milestones": Milestone.objects.filter(plot__project=project).count(),
+            "documents": project.documents.count(),
+            "images": project.images.count(),
+        },
+    }

@@ -86,7 +86,10 @@ class MilestoneChangeRequestCreateSerializer(serializers.ModelSerializer):
 
 class MilestoneChangeRequestSerializer(serializers.ModelSerializer):
     requested_by_email = serializers.CharField(source="requested_by.email", read_only=True)
+    requested_by_name = serializers.CharField(source="requested_by.name", read_only=True)
     plot_number = serializers.CharField(source="plot.plot_number", read_only=True)
+    project_name = serializers.CharField(source="plot.project.name", read_only=True)
+    reviewed_by_email = serializers.CharField(source="reviewed_by.email", default=None, read_only=True)
 
     class Meta:
         model = MilestoneChangeRequest
@@ -94,8 +97,10 @@ class MilestoneChangeRequestSerializer(serializers.ModelSerializer):
             "id",
             "plot",
             "plot_number",
+            "project_name",
             "requested_by",
             "requested_by_email",
+            "requested_by_name",
             "change_type",
             "proposed_details",
             "reason",
@@ -103,6 +108,7 @@ class MilestoneChangeRequestSerializer(serializers.ModelSerializer):
             "status",
             "admin_response",
             "counter_schedule",
+            "reviewed_by_email",
             "reviewed_at",
             "created_at",
         ]
@@ -125,11 +131,20 @@ class ChangeRequestCounterSerializer(serializers.Serializer):
 # Admin — 7.9/7.10 Milestones + Payment Verification Queue
 # ---------------------------------------------------------------------------
 class AdminMilestoneSerializer(serializers.ModelSerializer):
+    plot_number = serializers.CharField(source="plot.plot_number", read_only=True)
+    project_name = serializers.CharField(source="plot.project.name", read_only=True)
+    buyer = serializers.SerializerMethodField()
+    receipt = serializers.SerializerMethodField()
+
     class Meta:
         model = Milestone
         fields = [
             "id",
             "plot",
+            "plot_number",
+            "project_name",
+            "buyer",
+            "receipt",
             "sequence",
             "name",
             "description",
@@ -143,6 +158,24 @@ class AdminMilestoneSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id"]
 
+    def get_buyer(self, obj):
+        # plot.customers is prefetched by the viewset; avoid .filter() so the prefetch is used.
+        primary = next((c for c in obj.plot.customers.all() if c.plot_role == "PRIMARY"), None)
+        if not primary:
+            return None
+        return {"id": primary.id, "name": primary.name, "email": primary.email}
+
+    def get_receipt(self, obj):
+        """Latest platform-generated receipt. `receipts` is prefetched by AdminMilestoneViewSet; fall back to a query
+        for create/update responses."""
+        receipts = getattr(obj, "receipts", None)
+        if receipts is None:
+            receipts = list(obj.documents.filter(doc_type="PAYMENT_RECEIPT").order_by("-created_at")[:1])
+        doc = receipts[0] if receipts else None
+        if not doc or not doc.file:
+            return None
+        return {"id": doc.id, "name": doc.name, "url": doc.file.url, "created_at": doc.created_at}
+
 
 class PaymentVerificationQueueSerializer(serializers.ModelSerializer):
     customer_email = serializers.CharField(source="submitted_by.email", read_only=True)
@@ -151,6 +184,14 @@ class PaymentVerificationQueueSerializer(serializers.ModelSerializer):
     plot_number = serializers.CharField(source="milestone.plot.plot_number", read_only=True)
     milestone_name = serializers.CharField(source="milestone.name", read_only=True)
     expected_amount = serializers.DecimalField(source="milestone.amount", max_digits=14, decimal_places=2, read_only=True)
+    customer_id = serializers.IntegerField(source="submitted_by.id", read_only=True)
+    plot_id = serializers.IntegerField(source="milestone.plot_id", read_only=True)
+    milestone_sequence = serializers.IntegerField(source="milestone.sequence", read_only=True)
+    milestone_due_date = serializers.DateField(source="milestone.due_date", read_only=True)
+    reviewed_by_email = serializers.CharField(source="reviewed_by.email", default=None, read_only=True)
+    # annotated by PaymentVerificationQueueView; absent (default) on approve/reject responses
+    milestone_count = serializers.IntegerField(read_only=True, default=None)
+    duplicate_reference = serializers.BooleanField(read_only=True, default=False)
 
     class Meta:
         model = PaymentProof
@@ -158,10 +199,15 @@ class PaymentVerificationQueueSerializer(serializers.ModelSerializer):
             "id",
             "milestone",
             "milestone_name",
+            "milestone_sequence",
+            "milestone_count",
+            "milestone_due_date",
             "expected_amount",
+            "customer_id",
             "customer_email",
             "customer_name",
             "project_name",
+            "plot_id",
             "plot_number",
             "file",
             "claimed_amount",
@@ -170,6 +216,9 @@ class PaymentVerificationQueueSerializer(serializers.ModelSerializer):
             "transaction_reference",
             "status",
             "rejection_reason",
+            "reviewed_by_email",
+            "reviewed_at",
+            "duplicate_reference",
             "created_at",
         ]
 

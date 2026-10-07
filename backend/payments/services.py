@@ -92,6 +92,15 @@ def approve_payment_proof(proof, admin_user, *, corrected_amount=None, corrected
     if proof.status != PaymentProof.Status.PENDING:
         raise PaymentError("This proof has already been reviewed.", "already_reviewed")
 
+    # Approval marks the whole milestone PAID, so a short amount would silently write off the difference.
+    approved_amount = corrected_amount if corrected_amount is not None else proof.claimed_amount
+    if approved_amount < proof.milestone.amount:
+        raise PaymentError(
+            f"Approved amount ₹{approved_amount:,.2f} is less than the milestone amount ₹{proof.milestone.amount:,.2f}. "
+            "Reject the proof, or edit the milestone amount first.",
+            "short_payment",
+        )
+
     proof.status = PaymentProof.Status.APPROVED
     proof.reviewed_by = admin_user
     proof.reviewed_at = timezone.now()
@@ -183,11 +192,22 @@ def apply_schedule(plot, schedule):
     refresh_plot_milestone_statuses(plot)
 
 
+def _jsonable_schedule(schedule):
+    """Validated schedules carry Decimal/date values, which JSONFields (audit details, counter_schedule) can't store."""
+    return [
+        {"name": item.get("name") or "", "amount": str(item["amount"]), "due_date": str(item["due_date"])}
+        for item in schedule
+    ]
+
+
+@transaction.atomic
 def approve_change_request(change_request, admin_user, *, schedule=None):
     if change_request.status != MilestoneChangeRequest.Status.PENDING:
         raise PaymentError("This request has already been decided.", "already_reviewed")
-    if schedule:
-        apply_schedule(change_request.plot, schedule)
+    # The customer is told the change "has been applied", so approving must actually apply a schedule.
+    if not schedule:
+        raise PaymentError("Approving needs the revised schedule to apply to the unpaid milestones.", "schedule_required")
+    apply_schedule(change_request.plot, schedule)
 
     change_request.status = MilestoneChangeRequest.Status.APPROVED
     change_request.reviewed_by = admin_user
@@ -203,7 +223,7 @@ def approve_change_request(change_request, admin_user, *, schedule=None):
     )
     AuditLog.record(
         admin_user, "milestone_change_request.approve", target=change_request,
-        details={"schedule": schedule}, ip_address=None,
+        details={"schedule": _jsonable_schedule(schedule)}, ip_address=None,
     )
     return change_request
 
@@ -234,6 +254,7 @@ def counter_change_request(change_request, admin_user, *, counter_schedule, note
         raise PaymentError("This request has already been decided.", "already_reviewed")
 
     change_request.status = MilestoneChangeRequest.Status.COUNTERED
+    counter_schedule = _jsonable_schedule(counter_schedule)
     change_request.counter_schedule = {"schedule": counter_schedule, "note": note}
     change_request.admin_response = note
     change_request.reviewed_by = admin_user

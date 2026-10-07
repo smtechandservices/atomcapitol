@@ -65,7 +65,7 @@ class Banner(TimeStampedModel):
 
 
 class NotificationCampaign(TimeStampedModel):
-    """7.16 Notifications & Email — compose/send/schedule to all, a project, or a selected list."""
+    """7.16 Notifications & Email — compose (draft) and send to all, a project, or a selected list."""
 
     class TargetType(models.TextChoices):
         ALL = "ALL", "All customers"
@@ -79,7 +79,6 @@ class NotificationCampaign(TimeStampedModel):
 
     class CampaignStatus(models.TextChoices):
         DRAFT = "DRAFT", "Draft"
-        SCHEDULED = "SCHEDULED", "Scheduled"
         SENT = "SENT", "Sent"
 
     title = models.CharField(max_length=200)
@@ -88,7 +87,6 @@ class NotificationCampaign(TimeStampedModel):
     target_project = models.ForeignKey("projects.Project", null=True, blank=True, on_delete=models.SET_NULL)
     target_customers = models.ManyToManyField("accounts.Customer", blank=True, related_name="campaigns")
     channel = models.CharField(max_length=10, choices=Channel.choices, default=Channel.BOTH)
-    scheduled_at = models.DateTimeField(null=True, blank=True)
     sent_at = models.DateTimeField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=CampaignStatus.choices, default=CampaignStatus.DRAFT)
     created_by = models.ForeignKey("accounts.AdminUser", null=True, on_delete=models.SET_NULL)

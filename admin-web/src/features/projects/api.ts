@@ -20,8 +20,9 @@ export function useProjects(filters: ProjectFilters) {
 }
 
 /** Fetches every project across all pages — for use in <select> dropdowns elsewhere. */
-export function useAllProjects() {
+export function useAllProjects(enabled = true) {
   return useQuery({
+    enabled,
     queryKey: ['projects-all'],
     queryFn: async () => {
       const all: Project[] = []
@@ -55,8 +56,8 @@ export interface ProjectFormValues {
   location: string
   description: string
   development_status: string
-  latitude?: string
-  longitude?: string
+  latitude?: string | null
+  longitude?: string | null
   amenities: string[]
 }
 
@@ -67,7 +68,10 @@ export function useCreateProject() {
       const { data } = await api.post<Project>('/admin/projects/', values)
       return data
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['projects'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['projects'] })
+      qc.invalidateQueries({ queryKey: ['projects-all'] })
+    },
   })
 }
 
@@ -80,6 +84,7 @@ export function useUpdateProject(id: number) {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['projects'] })
+      qc.invalidateQueries({ queryKey: ['projects-all'] })
       qc.invalidateQueries({ queryKey: ['project', String(id)] })
     },
   })
@@ -94,6 +99,7 @@ export function useTogglePublish(id: number) {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['projects'] })
+      qc.invalidateQueries({ queryKey: ['projects-all'] })
       qc.invalidateQueries({ queryKey: ['project', String(id)] })
     },
   })
@@ -146,5 +152,35 @@ export function useDeleteProjectImage(projectId: number) {
       await api.delete(`/admin/projects/${projectId}/images/${imageId}/`)
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['project', String(projectId)] }),
+  })
+}
+
+export interface ProjectDeleteSummary {
+  can_delete: boolean
+  blocked_plots: { plot_id: number; plot_number: string; reasons: string[] }[]
+  blocked_count: number
+  will_delete: { plots: number; milestones: number; documents: number; images: number }
+}
+
+export function useProjectDeleteCheck(id: number, enabled: boolean) {
+  return useQuery({
+    queryKey: ['project', String(id), 'delete-check'],
+    queryFn: async () => (await api.get<ProjectDeleteSummary>(`/admin/projects/${id}/delete-check/`)).data,
+    enabled,
+    staleTime: 0,
+  })
+}
+
+export function useDeleteProject() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: number) => {
+      await api.delete(`/admin/projects/${id}/`)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['projects'] })
+      qc.invalidateQueries({ queryKey: ['projects-all'] })
+      qc.invalidateQueries({ queryKey: ['plots'] })
+    },
   })
 }

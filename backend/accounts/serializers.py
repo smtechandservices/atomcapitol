@@ -78,7 +78,8 @@ class CustomerProfileSerializer(serializers.ModelSerializer):
         return CustomerPlotSummarySerializer(obj.assigned_plot).data
 
     def get_sales_person(self, obj):
-        if not obj.assigned_sales_person:
+        # A deactivated sales person stays linked (so reactivating restores it) but is hidden from the customer.
+        if not obj.assigned_sales_person or not obj.assigned_sales_person.is_active:
             return None
         return SalesContactSerializer(obj.assigned_sales_person, context=self.context).data
 
@@ -135,9 +136,10 @@ class AdminUserSerializer(serializers.ModelSerializer):
             "role",
             "is_active",
             "date_joined",
+            "last_login",
             "password",
         ]
-        read_only_fields = ["id", "date_joined"]
+        read_only_fields = ["id", "date_joined", "last_login"]
 
     def create(self, validated_data):
         validated_data = apply_html_form_boolean_defaults(self, validated_data, {"is_active": True})
@@ -161,9 +163,11 @@ class AdminUserSerializer(serializers.ModelSerializer):
 # Admin Portal — 7.5/7.6/7.7 Customers
 # ---------------------------------------------------------------------------
 class CustomerListSerializer(serializers.ModelSerializer):
+    plot_id = serializers.IntegerField(source="assigned_plot_id", default=None, read_only=True)
     project_name = serializers.CharField(source="assigned_plot.project.name", default=None, read_only=True)
     plot_number = serializers.CharField(source="assigned_plot.plot_number", default=None, read_only=True)
     sales_person_name = serializers.CharField(source="assigned_sales_person.name", default=None, read_only=True)
+    sales_person_id = serializers.IntegerField(source="assigned_sales_person_id", default=None, read_only=True)
 
     class Meta:
         model = Customer
@@ -172,12 +176,14 @@ class CustomerListSerializer(serializers.ModelSerializer):
             "name",
             "email",
             "phone",
+            "plot_id",
             "project_name",
             "plot_number",
             "plot_role",
             "kyc_status",
             "is_active",
             "sales_person_name",
+            "sales_person_id",
             "created_at",
         ]
 

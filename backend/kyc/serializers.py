@@ -51,37 +51,56 @@ class KYCStatusSerializer(serializers.ModelSerializer):
 # Admin — 7.8 KYC Review Queue
 # ---------------------------------------------------------------------------
 class KYCQueueListSerializer(serializers.ModelSerializer):
+    customer_id = serializers.IntegerField(source="customer.id", read_only=True)
     customer_email = serializers.CharField(source="customer.email", read_only=True)
     customer_name = serializers.CharField(source="customer.name", read_only=True)
     kyc_status = serializers.CharField(source="customer.kyc_status", read_only=True)
     plot_number = serializers.CharField(source="customer.assigned_plot.plot_number", default=None, read_only=True)
+    project_name = serializers.CharField(source="customer.assigned_plot.project.name", default=None, read_only=True)
+    # annotated by views.queue_queryset()
+    waiting_since = serializers.DateTimeField(read_only=True, default=None)
 
     class Meta:
         model = KYCSubmission
         fields = [
             "id",
+            "customer_id",
             "customer_email",
             "customer_name",
             "kyc_status",
             "plot_number",
+            "project_name",
+            "plot_confirmed",
             "step2_status",
             "step3_status",
             "step2_submitted_at",
             "step3_submitted_at",
+            "waiting_since",
+            "reviewed_at",
         ]
 
 
 class KYCDecisionLogSerializer(serializers.ModelSerializer):
     decided_by_email = serializers.CharField(source="decided_by.email", default=None, read_only=True)
+    decided_by_name = serializers.SerializerMethodField()
 
     class Meta:
         model = KYCDecisionLog
-        fields = ["id", "step", "decision", "reason", "decided_by_email", "created_at"]
+        fields = ["id", "step", "decision", "reason", "decided_by_email", "decided_by_name", "created_at"]
+
+    def get_decided_by_name(self, obj):
+        user = obj.decided_by
+        if not user:
+            return None
+        return f"{user.first_name} {user.last_name}".strip() or None
 
 
 class KYCQueueDetailSerializer(serializers.ModelSerializer):
+    customer_id = serializers.IntegerField(source="customer.id", read_only=True)
     customer_email = serializers.CharField(source="customer.email", read_only=True)
     customer_name = serializers.CharField(source="customer.name", read_only=True)
+    customer_phone = serializers.CharField(source="customer.phone", read_only=True)
+    kyc_status = serializers.CharField(source="customer.kyc_status", read_only=True)
     plot = serializers.SerializerMethodField()
     decisions = KYCDecisionLogSerializer(many=True, read_only=True)
 
@@ -89,8 +108,11 @@ class KYCQueueDetailSerializer(serializers.ModelSerializer):
         model = KYCSubmission
         fields = [
             "id",
+            "customer_id",
             "customer_email",
             "customer_name",
+            "customer_phone",
+            "kyc_status",
             "plot",
             "plot_confirmed",
             "plot_mismatch_note",

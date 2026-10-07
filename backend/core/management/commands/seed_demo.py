@@ -404,7 +404,6 @@ class Command(BaseCommand):
         send_campaign(sent)
         NotificationCampaign.objects.create(
             title=f"{BANNER_PREFIX} Diwali greetings", body="Wishing you and your family a happy Diwali!",
-            status=NotificationCampaign.CampaignStatus.SCHEDULED, scheduled_at=timezone.now() + timedelta(days=10),
             created_by=self.admin,
         )
         NotificationCampaign.objects.create(

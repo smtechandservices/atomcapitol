@@ -47,7 +47,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Customers',
     items: [
-      { to: '/customers', label: 'Customers', icon: Users },
+      { to: '/customers', label: 'Customers', icon: Users, roles: ['SUPER_ADMIN', 'ACCOUNTS', 'SUPPORT'] },
       { to: '/kyc', label: 'KYC Review Queue', icon: ShieldCheck, roles: ['SUPER_ADMIN', 'KYC_REVIEWER'] },
     ],
   },
@@ -70,22 +70,22 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Content & Comms',
     items: [
-      { to: '/banners', label: 'Banners', icon: ImageIcon, roles: ['SUPER_ADMIN', 'ACCOUNTS'] },
+      { to: '/banners', label: 'Banners', icon: ImageIcon, roles: ['SUPER_ADMIN'] },
       {
         to: '/notifications',
         label: 'Notifications & Email',
         icon: Bell,
-        roles: ['SUPER_ADMIN', 'ACCOUNTS', 'SUPPORT'],
+        roles: ['SUPER_ADMIN', 'SUPPORT'],
       },
     ],
   },
   {
     label: 'Settings',
     items: [
-      { to: '/sales-team', label: 'Sales Team', icon: UserSquare2, roles: ['SUPER_ADMIN', 'ACCOUNTS'] },
+      { to: '/sales-team', label: 'Sales Team', icon: UserSquare2, roles: ['SUPER_ADMIN'] },
       { to: '/admin-users', label: 'Admin Users & Roles', icon: UserCog, roles: ['SUPER_ADMIN'] },
-      { to: '/audit-log', label: 'Audit Log', icon: ScrollText },
-      { to: '/settings', label: 'Settings', icon: SettingsIcon, roles: ['SUPER_ADMIN', 'ACCOUNTS'] },
+      { to: '/audit-log', label: 'Audit Log', icon: ScrollText, roles: ['SUPER_ADMIN'] },
+      { to: '/settings', label: 'Settings', icon: SettingsIcon, roles: ['SUPER_ADMIN'] },
     ],
   },
 ]

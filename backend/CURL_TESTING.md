@@ -544,7 +544,7 @@ curl -s -X POST $BASE/admin/banners/ -H "$AUTH" \
   -F "display_order=1" \
   -F "image=@/tmp/photo.jpg;type=image/jpeg" | jq .
 
-# Admin — Notification Campaigns (compose/send/schedule)
+# Admin — Notification Campaigns (draft → send)
 curl -s $BASE/admin/notifications/campaigns/ -H "$AUTH" | jq .
 
 curl -s -X POST $BASE/admin/notifications/campaigns/ -H "$AUTH" -H "Content-Type: application/json" -d '{
@@ -558,9 +558,6 @@ CAMPAIGN_ID=$(jq -r .id /tmp/campaign.json)
 curl -s -X POST $BASE/admin/notifications/campaigns/$CAMPAIGN_ID/send/ -H "$AUTH" | jq .
 curl -s $BASE/admin/notifications/campaigns/delivery-log/ -H "$AUTH" | jq .
 
-# or schedule instead of sending immediately
-curl -s -X POST $BASE/admin/notifications/campaigns/$CAMPAIGN_ID/schedule/ -H "$AUTH" -H "Content-Type: application/json" \
-  -d '{"scheduled_at": "2026-10-01T09:00:00Z"}' | jq .
 ```
 
 ---

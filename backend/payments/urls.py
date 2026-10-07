@@ -15,6 +15,7 @@ urlpatterns = [
     # Admin
     path("admin/plots/<int:plot_id>/generate-schedule/", views.GenerateMilestoneScheduleView.as_view(), name="admin-generate-schedule"),
     path("admin/payment-verification-queue/", views.PaymentVerificationQueueView.as_view(), name="admin-payment-queue"),
+    path("admin/payment-verification-queue/stats/", views.PaymentVerificationStatsView.as_view(), name="admin-payment-queue-stats"),
     path("admin/payment-verification-queue/<int:pk>/approve/", views.ApprovePaymentProofView.as_view(), name="admin-payment-approve"),
     path("admin/payment-verification-queue/<int:pk>/reject/", views.RejectPaymentProofView.as_view(), name="admin-payment-reject"),
     path("admin/milestone-change-requests/", views.AdminChangeRequestListView.as_view(), name="admin-change-requests"),
@@ -23,4 +24,5 @@ urlpatterns = [
     path("admin/milestone-change-requests/<int:pk>/decline/", views.DeclineChangeRequestView.as_view(), name="admin-change-request-decline"),
     path("admin/milestone-change-requests/<int:pk>/counter/", views.CounterChangeRequestView.as_view(), name="admin-change-request-counter"),
     path("admin/payment-overview/", views.PaymentOverviewView.as_view(), name="admin-payment-overview"),
+    path("admin/payment-overview/insights/", views.PaymentInsightsView.as_view(), name="admin-payment-insights"),
 ] + router.urls

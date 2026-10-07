@@ -182,7 +182,11 @@ SPECTACULAR_SETTINGS = {
 # CORS
 # ---------------------------------------------------------------------------
 CORS_ALLOWED_ORIGINS = [o.strip() for o in os.environ.get("CORS_ALLOWED_ORIGINS", "").split(",") if o.strip()]
+# Local dev: `next dev` falls back to 3001, 3002… when 3000 is busy — accept any localhost port.
+CORS_ALLOWED_ORIGIN_REGEXES = [r"^http://(localhost|127\.0\.0\.1):\d+$"] if DEBUG else []
 CORS_ALLOW_CREDENTIALS = True
+# Lets the portal read the server's filename on blob downloads (e.g. /admin/documents/<id>/download/).
+CORS_EXPOSE_HEADERS = ["Content-Disposition"]
 
 # ---------------------------------------------------------------------------
 # Email (OTPs, notifications) — console backend by default for local dev
@@ -206,6 +210,9 @@ OTP_LENGTH = 6
 OTP_EXPIRY_MINUTES = 10
 OTP_MAX_ATTEMPTS = 5
 OTP_RESEND_COOLDOWN_SECONDS = 60
+# Dev/testing only: a fixed code accepted for any login-eligible customer (still must be active + have a plot).
+# Forced off whenever DEBUG is off, so a stray env var in production can't open every account.
+OTP_BYPASS_CODE = os.environ.get("OTP_BYPASS_CODE", "").strip() if DEBUG else ""
 
 MAX_UPLOAD_SIZE_MB = 25
 

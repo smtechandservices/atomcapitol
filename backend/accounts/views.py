@@ -1,9 +1,12 @@
 from django.conf import settings
 from django.contrib.auth import authenticate
+from django.contrib.auth.models import update_last_login
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import generics, status, viewsets
 from rest_framework.filters import SearchFilter, OrderingFilter
 from rest_framework.permissions import AllowAny
+from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import TokenError
@@ -161,7 +164,7 @@ class CustomerSalesContactView(APIView):
 
     def get(self, request):
         sales_person = request.user.assigned_sales_person
-        if not sales_person:
+        if not sales_person or not sales_person.is_active:
             return Response({"detail": "No sales contact assigned yet.", "errors": {}}, status=status.HTTP_404_NOT_FOUND)
         return Response(SalesContactSerializer(sales_person, context={"request": request}).data)
 
@@ -210,6 +213,7 @@ class AdminLoginView(APIView):
             return Response({"detail": "Invalid credentials.", "errors": {}}, status=status.HTTP_401_UNAUTHORIZED)
 
         tokens = issue_admin_tokens(user)
+        update_last_login(None, user)  # JWT login bypasses Django's login(), so record it for the Admin Users page
         AuditLog.record(user, "admin.login", target=user, ip_address=getattr(request, "client_ip", None))
         return Response(
             {
@@ -239,12 +243,37 @@ class AdminUserViewSet(viewsets.ModelViewSet):
         instance = serializer.save()
         AuditLog.record(self.request.user, "admin_user.create", target=instance, ip_address=self.request.client_ip)
 
+    # --- lockout guards: nobody can remove their own access, and there is always an active super admin
+    def _is_last_super_admin(self, user):
+        return (
+            user.role == AdminUser.Role.SUPER_ADMIN
+            and user.is_active
+            and not AdminUser.objects.filter(role=AdminUser.Role.SUPER_ADMIN, is_active=True).exclude(pk=user.pk).exists()
+        )
+
     def perform_update(self, serializer):
+        instance, data = serializer.instance, serializer.validated_data
+        deactivating = data.get("is_active") is False and instance.is_active
+        demoting = "role" in data and data["role"] != instance.role and instance.role == AdminUser.Role.SUPER_ADMIN
+        if instance.pk == self.request.user.pk and (deactivating or ("role" in data and data["role"] != instance.role)):
+            raise ValidationError({"detail": "You can't deactivate yourself or change your own role."})
+        if (deactivating or demoting) and self._is_last_super_admin(instance):
+            raise ValidationError({"detail": "This is the only active super admin — make someone else a super admin first."})
         instance = serializer.save()
-        AuditLog.record(self.request.user, "admin_user.update", target=instance, ip_address=self.request.client_ip)
+        AuditLog.record(
+            self.request.user,
+            "admin_user.update",
+            target=instance,
+            details={k: v for k, v in self.request.data.items() if k != "password"} | ({"password": "reset"} if "password" in self.request.data else {}),
+            ip_address=self.request.client_ip,
+        )
 
     def perform_destroy(self, instance):
-        AuditLog.record(self.request.user, "admin_user.delete", target=instance, ip_address=self.request.client_ip)
+        if instance.pk == self.request.user.pk:
+            raise ValidationError({"detail": "You can't delete your own account."})
+        if self._is_last_super_admin(instance):
+            raise ValidationError({"detail": "This is the only active super admin and can't be deleted."})
+        AuditLog.record(self.request.user, "admin_user.delete", target=instance, details={"email": instance.email}, ip_address=self.request.client_ip)
         instance.delete()
 
 
@@ -254,13 +283,44 @@ class AdminUserViewSet(viewsets.ModelViewSet):
 class CustomerAdminViewSet(viewsets.ModelViewSet):
     """List/search/export (7.5), Add/Invite (7.6), Detail + edit (7.7)."""
 
-    queryset = Customer.objects.select_related("assigned_plot__project", "assigned_sales_person").all()
+    # Explicit order: Customer has no Meta.ordering, and unordered pagination can repeat/skip rows.
+    queryset = Customer.objects.select_related("assigned_plot__project", "assigned_sales_person").order_by("-created_at", "-id")
     permission_classes = [role_required("SUPER_ADMIN", "ACCOUNTS", "SUPPORT")]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    filterset_fields = ["kyc_status", "is_active", "assigned_plot__project", "assigned_sales_person"]
+    # assigned_plot__isnull=true lists customers free to be put on a plot (used by the plot assign picker).
+    filterset_fields = {
+        "kyc_status": ["exact"],
+        "is_active": ["exact"],
+        "assigned_plot__project": ["exact"],
+        "assigned_sales_person": ["exact", "isnull"],
+        "assigned_plot": ["isnull"],
+    }
     search_fields = ["name", "email", "phone", "assigned_plot__plot_number"]
     ordering_fields = ["created_at", "name", "kyc_status"]
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+
+    def get_permissions(self):
+        # Accounts and Support can look customers up but not change them: edits/deletes are super admin only.
+        if self.action in ("update", "partial_update", "destroy", "delete_check"):
+            return [role_required("SUPER_ADMIN")()]
+        return super().get_permissions()
+
+    @action(detail=True, methods=["get"], url_path="delete-check")
+    def delete_check(self, request, pk=None):
+        reasons = services.customer_delete_blockers(self.get_object())
+        return Response({"can_delete": not reasons, "reasons": reasons})
+
+    def destroy(self, request, *args, **kwargs):
+        customer = self.get_object()
+        reasons = services.customer_delete_blockers(customer)
+        if reasons:
+            return Response(
+                {"detail": f"{customer.email} can't be deleted: {'; '.join(reasons)}. Unassign or mark them inactive instead.", "errors": {}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        AuditLog.record(request.user, "customer.delete", target=customer, details={"email": customer.email, "name": customer.name}, ip_address=request.client_ip)
+        customer.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     def get_serializer_class(self):
         if self.action == "list":
