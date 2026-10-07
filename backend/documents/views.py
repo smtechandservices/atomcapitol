@@ -42,7 +42,7 @@ class CustomerDocumentDetailView(generics.RetrieveAPIView):
 # Admin — 7.13 Documents
 # ---------------------------------------------------------------------------
 class AdminDocumentViewSet(viewsets.ModelViewSet):
-    queryset = Document.objects.select_related("customer__assigned_plot", "project", "milestone", "uploaded_by").all()
+    queryset = Document.objects.select_related("customer__assigned_plot__project", "project", "milestone", "uploaded_by").all()
     serializer_class = AdminDocumentSerializer
     permission_classes = [role_required("SUPER_ADMIN", "ACCOUNTS")]
     parser_classes = [JSONParser, MultiPartParser, FormParser]

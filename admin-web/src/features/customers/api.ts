@@ -123,3 +123,19 @@ export function useDeleteCustomer() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['customers'] }),
   })
 }
+
+/** Super admin override of the overall KYC status (normally derived from the KYC submission). */
+export function useSetCustomerKycStatus(id: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ kyc_status, reason }: { kyc_status: string; reason: string }) => {
+      const { data } = await api.post<CustomerDetail>(`/admin/customers/${id}/set-kyc-status/`, { kyc_status, reason })
+      return data
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['customers'] })
+      qc.invalidateQueries({ queryKey: ['customer', String(id)] })
+      qc.invalidateQueries({ queryKey: ['kyc-queue'] })
+    },
+  })
+}

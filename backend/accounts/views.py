@@ -301,9 +301,32 @@ class CustomerAdminViewSet(viewsets.ModelViewSet):
 
     def get_permissions(self):
         # Accounts and Support can look customers up but not change them: edits/deletes are super admin only.
-        if self.action in ("update", "partial_update", "destroy", "delete_check"):
+        if self.action in ("update", "partial_update", "destroy", "delete_check", "set_kyc_status"):
             return [role_required("SUPER_ADMIN")()]
         return super().get_permissions()
+
+    @action(detail=True, methods=["post"], url_path="set-kyc-status")
+    def set_kyc_status(self, request, pk=None):
+        """Manual override of the customer's overall KYC status (normally derived from their KYC
+        submission). A later KYC submission or reviewer decision recalculates it."""
+        customer = self.get_object()
+        new_status = request.data.get("kyc_status")
+        reason = (request.data.get("reason") or "").strip()
+        if new_status not in Customer.KYCStatus.values:
+            return Response({"detail": "Choose a valid KYC status.", "errors": {}}, status=status.HTTP_400_BAD_REQUEST)
+        if new_status == customer.kyc_status:
+            return Response({"detail": "The customer already has that KYC status.", "errors": {}}, status=status.HTTP_400_BAD_REQUEST)
+        old_status = customer.kyc_status
+        customer.kyc_status = new_status
+        customer.save(update_fields=["kyc_status", "updated_at"])
+        AuditLog.record(
+            request.user,
+            "customer.kyc_override",
+            target=customer,
+            details={"from": old_status, "to": new_status, "reason": reason},
+            ip_address=request.client_ip,
+        )
+        return Response(CustomerAdminDetailSerializer(customer, context={"request": request}).data)
 
     @action(detail=True, methods=["get"], url_path="delete-check")
     def delete_check(self, request, pk=None):
@@ -334,5 +357,7 @@ class CustomerAdminViewSet(viewsets.ModelViewSet):
         AuditLog.record(self.request.user, "customer.create", target=instance, ip_address=self.request.client_ip)
 
     def perform_update(self, serializer):
+        before = {f: str(getattr(serializer.instance, f)) for f in serializer.validated_data}
         instance = serializer.save()
-        AuditLog.record(self.request.user, "customer.update", target=instance, ip_address=self.request.client_ip)
+        changes = {f: {"from": before[f], "to": str(getattr(instance, f))} for f in before if before[f] != str(getattr(instance, f))}
+        AuditLog.record(self.request.user, "customer.update", target=instance, details=changes, ip_address=self.request.client_ip)
