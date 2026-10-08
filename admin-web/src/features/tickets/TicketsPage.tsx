@@ -12,7 +12,8 @@ import {
   Hammer,
   Inbox,
   LifeBuoy,
-  MessageSquareReply,
+  PanelLeftClose,
+  PanelLeftOpen,
   Paperclip,
   Phone,
   Receipt,
@@ -20,11 +21,10 @@ import {
   Search,
   Send,
   UserRound,
-  UserRoundCheck,
   X,
 } from 'lucide-react'
 import { PageHeader } from '@/components/ui/PageHeader'
-import { Card, StatCard } from '@/components/ui/Card'
+import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Input, Select } from '@/components/ui/Field'
 import { Badge } from '@/components/ui/Badge'
@@ -60,6 +60,7 @@ const QUICK_REPLIES = [
 ]
 
 const PAGE_SIZE = 20
+const LIST_FOLDED_KEY = 'tickets.listFolded'
 
 const initialsOf = (name: string, email: string) =>
   (name || email)
@@ -77,6 +78,24 @@ export function TicketsPage({ initialId }: { initialId?: number }) {
   const [category, setCategory] = useState('')
   const [view, setView] = useState<View>(initialId ? 'all' : 'awaiting')
   const [selectedId, setSelectedId] = useState<number | null>(initialId ?? null)
+  const [folded, setFolded] = useState(false)
+
+  // Read after mount so server and first client render agree.
+  useEffect(() => {
+    try {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage isn't readable during SSR
+      setFolded(window.localStorage.getItem(LIST_FOLDED_KEY) === '1')
+    } catch {}
+  }, [])
+
+  const toggleFolded = () => {
+    setFolded((f) => {
+      try {
+        window.localStorage.setItem(LIST_FOLDED_KEY, f ? '0' : '1')
+      } catch {}
+      return !f
+    })
+  }
 
   const viewFilter: Record<View, Partial<TicketFilters>> = {
     awaiting: { awaiting: 'true' },
@@ -118,14 +137,7 @@ export function TicketsPage({ initialId }: { initialId?: number }) {
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Support Tickets" subtitle="Customer queries — reply, assign and track them to resolution" />
-
-      <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
-        <StatCard label="Needs reply" value={stats?.awaiting_reply ?? '—'} icon={<MessageSquareReply className="size-5" />} accent="gold" className="py-6" />
-        <StatCard label="Open & in progress" value={stats ? stats.open + stats.in_progress : '—'} icon={<Inbox className="size-5" />} accent="ink" className="py-6" />
-        <StatCard label="Unassigned" value={stats?.unassigned_active ?? '—'} icon={<UserRound className="size-5" />} accent="danger" className="py-6" />
-        <StatCard label="Assigned to me" value={stats?.mine_active ?? '—'} icon={<UserRoundCheck className="size-5" />} accent="success" className="py-6" />
-      </div>
+      <PageHeader title="Support Tickets" subtitle="Customer queries : reply, assign and track them to resolution" />
 
       <Card className="overflow-clip">
         <div className="flex flex-col gap-3 border-b border-ink-100 p-4">
@@ -177,31 +189,62 @@ export function TicketsPage({ initialId }: { initialId?: number }) {
         </div>
 
         {/* Inbox: fixed-height so the list and the conversation scroll independently */}
-        <div className="grid h-[calc(100vh-150px)] min-h-[560px] grid-cols-1 lg:grid-cols-[380px_1fr]">
-          <div className="flex min-h-0 flex-col border-b border-ink-100 lg:border-b-0 lg:border-r">
+        <div
+          className={clsx(
+            'grid h-[calc(100vh-150px)] min-h-[560px] grid-cols-1 transition-[grid-template-columns] duration-200',
+            folded ? 'lg:grid-cols-[72px_1fr]' : 'lg:grid-cols-[380px_1fr]',
+          )}
+        >
+          <div className="flex min-h-0 min-w-0 flex-col border-b border-ink-100 lg:border-b-0 lg:border-r">
+            <div className={clsx('hidden h-10 shrink-0 items-center border-b border-ink-100 lg:flex', folded ? 'justify-center' : 'justify-between pl-4 pr-2')}>
+              {!folded && <p className="text-xs font-medium text-ink-400">{data ? `${data.count} ticket${data.count === 1 ? '' : 's'}` : ''}</p>}
+              <button
+                type="button"
+                onClick={toggleFolded}
+                title={folded ? 'Expand list' : 'Collapse list'}
+                aria-label={folded ? 'Expand ticket list' : 'Collapse ticket list'}
+                aria-expanded={!folded}
+                className="flex size-7 items-center justify-center rounded-lg text-ink-400 hover:bg-ink-50 hover:text-ink-700"
+              >
+                {folded ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
+              </button>
+            </div>
             {isLoading ? (
               <FullPageSpinner />
             ) : error ? (
               <ErrorState message={apiErrorMessage(error)} />
             ) : rows.length === 0 ? (
-              <EmptyState
-                icon={<CheckCircle2 className="size-6" />}
-                title={view === 'awaiting' && !search && !category ? 'All caught up' : 'No tickets here'}
-                subtitle={view === 'awaiting' && !search && !category ? 'No customer is waiting on a reply.' : 'Try a different filter.'}
-              />
+              // folding only applies at lg+, where the list sits beside the conversation
+              <div className={clsx(folded && 'lg:hidden')}>
+                <EmptyState
+                  icon={<CheckCircle2 className="size-6" />}
+                  title={view === 'awaiting' && !search && !category ? 'All caught up' : 'No tickets here'}
+                  subtitle={view === 'awaiting' && !search && !category ? 'No customer is waiting on a reply.' : 'Try a different filter.'}
+                />
+              </div>
             ) : (
               <ul className="min-h-0 flex-1 divide-y divide-ink-100 overflow-y-auto">
                 {rows.map((t) => (
-                  <TicketListRow key={t.id} ticket={t} active={t.id === activeId} onClick={() => select(t.id)} />
+                  <TicketListRow key={t.id} ticket={t} active={t.id === activeId} folded={folded} onClick={() => select(t.id)} />
                 ))}
               </ul>
             )}
             {totalPages > 1 && (
-              <div className="flex items-center justify-between border-t border-ink-100 px-4 py-2.5">
-                <p className="text-xs text-ink-400">
+              <div
+                className={clsx(
+                  'flex items-center justify-between border-t border-ink-100 px-4 py-2.5',
+                  folded && 'lg:flex-col lg:gap-1.5 lg:px-0',
+                )}
+              >
+                <p className={clsx('text-xs text-ink-400', folded && 'lg:hidden')}>
                   Page {page} of {totalPages} · {data?.count}
                 </p>
-                <div className="flex gap-1">
+                {folded && (
+                  <p className="hidden text-[11px] tabular-nums text-ink-400 lg:block">
+                    {page}/{totalPages}
+                  </p>
+                )}
+                <div className={clsx('flex gap-1', folded && 'lg:flex-col')}>
                   {[
                     { to: page - 1, disabled: page <= 1, icon: <ChevronLeft className="size-4" /> },
                     { to: page + 1, disabled: page >= totalPages, icon: <ChevronRight className="size-4" /> },
@@ -236,22 +279,40 @@ export function TicketsPage({ initialId }: { initialId?: number }) {
   )
 }
 
-function TicketListRow({ ticket: t, active, onClick }: { ticket: TicketListItem; active: boolean; onClick: () => void }) {
+function TicketListRow({
+  ticket: t,
+  active,
+  folded,
+  onClick,
+}: {
+  ticket: TicketListItem
+  active: boolean
+  /** lg+ only: show just the avatar */
+  folded: boolean
+  onClick: () => void
+}) {
   const awaiting = (t.status === 'OPEN' || t.status === 'IN_PROGRESS') && t.last_sender_type === 'CUSTOMER'
   return (
     <li>
       <button
         onClick={onClick}
+        title={folded ? `${t.customer_name || t.customer_email} — ${t.subject}` : undefined}
         className={clsx(
           'flex w-full gap-3 border-l-2 px-4 py-3 text-left transition-colors',
+          folded && 'lg:justify-center lg:px-0',
           active ? 'border-gold-500 bg-gold-50/70' : 'border-transparent hover:bg-ink-50/70',
         )}
       >
-        <span className="relative flex size-9 shrink-0 items-center justify-center rounded-full bg-ink-800 text-xs font-semibold text-gold-300">
+        <span
+          className={clsx(
+            'relative flex size-9 shrink-0 items-center justify-center rounded-full bg-ink-800 text-xs font-semibold text-gold-300',
+            folded && active && 'lg:ring-2 lg:ring-gold-500 lg:ring-offset-2',
+          )}
+        >
           {initialsOf(t.customer_name, t.customer_email)}
           {awaiting && <span className="absolute -right-0.5 -top-0.5 size-3 rounded-full bg-gold-500 ring-2 ring-white" title="Needs reply" />}
         </span>
-        <div className="min-w-0 flex-1">
+        <div className={clsx('min-w-0 flex-1', folded && 'lg:hidden')}>
           <div className="flex items-baseline justify-between gap-2">
             <p className={clsx('truncate text-sm', awaiting ? 'font-semibold text-ink-900' : 'font-medium text-ink-700')}>{t.customer_name || t.customer_email}</p>
             <span className="shrink-0 text-[11px] tabular-nums text-ink-400">{formatAge(t.last_message_at ?? t.created_at)}</span>
@@ -292,11 +353,20 @@ function Conversation({ ticketId }: { ticketId: number }) {
   const [file, setFile] = useState<File | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
   const scroller = useRef<HTMLDivElement>(null)
+  const textarea = useRef<HTMLTextAreaElement>(null)
 
   const messageCount = t?.messages.length ?? 0
   useEffect(() => {
     scroller.current?.scrollTo({ top: scroller.current.scrollHeight })
   }, [messageCount])
+
+  // Composer starts at one line and grows with its content (capped by max-h, then scrolls).
+  useEffect(() => {
+    const el = textarea.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [message])
 
   if (isLoading) return <FullPageSpinner />
   if (error || !t) return <ErrorState message={apiErrorMessage(error, 'Ticket not found')} />
@@ -487,14 +557,15 @@ function Conversation({ ticketId }: { ticketId: number }) {
           </div>
           <div className="rounded-lg border border-ink-200 focus-within:border-gold-500 focus-within:ring-2 focus-within:ring-gold-100">
             <textarea
-              rows={3}
+              ref={textarea}
+              rows={1}
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               onKeyDown={onKeyDown}
               placeholder={`Reply to ${t.customer_name || t.customer_email}…`}
-              className="block w-full resize-none rounded-t-lg border-0 bg-transparent px-3 py-2.5 text-sm text-ink-800 placeholder:text-ink-300 focus:outline-none"
+              className="block max-h-40 w-full resize-none overflow-y-auto rounded-t-lg border-0 bg-transparent px-3 py-2 text-sm text-ink-800 placeholder:text-ink-300 focus:outline-none"
             />
-            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-ink-100 px-2 py-1.5">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-ink-100 px-2 py-1">
               <div className="flex min-w-0 items-center gap-2">
                 <button
                   type="button"
