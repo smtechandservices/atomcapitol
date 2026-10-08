@@ -35,10 +35,12 @@ export function formatDateTime(value: string | null | undefined): string {
 
 export function fileName(url: string | null | undefined): string {
   if (!url) return ''
+  // drop the query string first — signed storage URLs carry signatures that contain '/'
+  const path = url.split(/[?#]/)[0]
   try {
-    return decodeURIComponent(url.split('/').pop() ?? url)
+    return decodeURIComponent(path.split('/').pop() || path)
   } catch {
-    return url
+    return path
   }
 }
 

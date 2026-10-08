@@ -33,7 +33,7 @@ import { EmptyState, ErrorState } from '@/components/ui/EmptyState'
 import { useToast } from '@/components/ui/Toast'
 import { apiErrorMessage } from '@/lib/api'
 import { useAuth } from '@/lib/auth'
-import { absoluteMediaUrl, formatAge, formatDateTime } from '@/lib/format'
+import { absoluteMediaUrl, fileName, formatAge, formatDateTime } from '@/lib/format'
 import type { TicketCategory, TicketDetail, TicketListItem, TicketMessage, TicketStatus } from '@/types'
 import { useAssignTicket, useReplyTicket, useSetTicketStatus, useTicket, useTicketAssignees, useTicketStats, useTickets, type TicketFilters } from './api'
 
@@ -543,7 +543,8 @@ function Conversation({ ticketId }: { ticketId: number }) {
 function MessageBubble({ message: m, ticket: t }: { message: TicketMessage; ticket: TicketDetail }) {
   const mine = m.sender_type === 'ADMIN'
   const url = absoluteMediaUrl(m.attachment)
-  const isImage = url && /\.(png|jpe?g|gif|webp)($|\?)/i.test(url)
+  const name = fileName(url)
+  const isImage = /\.(png|jpe?g|gif|webp)$/i.test(name)
   return (
     <div className={clsx('flex gap-2.5', mine && 'flex-row-reverse')}>
       <span
@@ -554,14 +555,14 @@ function MessageBubble({ message: m, ticket: t }: { message: TicketMessage; tick
       >
         {mine ? initialsOf(m.sender_name, '') || 'S' : initialsOf(t.customer_name, t.customer_email)}
       </span>
-      <div className={clsx('flex max-w-[75%] flex-col gap-1', mine && 'items-end')}>
+      <div className={clsx('flex min-w-0 max-w-[75%] flex-col gap-1', mine && 'items-end')}>
         <div
           className={clsx(
-            'rounded-2xl px-3.5 py-2.5 text-sm shadow-sm',
+            'max-w-full rounded-2xl px-3.5 py-2.5 text-sm shadow-sm',
             mine ? 'rounded-tr-sm bg-ink-800 text-white' : 'rounded-tl-sm bg-white text-ink-700 ring-1 ring-ink-100',
           )}
         >
-          {m.message && <p className="whitespace-pre-line break-words">{m.message}</p>}
+          {m.message && <p className="whitespace-pre-line [overflow-wrap:anywhere]">{m.message}</p>}
           {url &&
             (isImage ? (
               <a href={url} target="_blank" rel="noreferrer" className="mt-2 block">
@@ -573,9 +574,11 @@ function MessageBubble({ message: m, ticket: t }: { message: TicketMessage; tick
                 href={url}
                 target="_blank"
                 rel="noreferrer"
-                className={clsx('mt-2 flex items-center gap-1.5 text-xs underline', mine ? 'text-gold-200' : 'text-gold-700')}
+                title={name}
+                className={clsx('mt-2 flex min-w-0 items-center gap-1.5 text-xs underline', mine ? 'text-gold-200' : 'text-gold-700')}
               >
-                <Paperclip className="size-3.5" /> {decodeURIComponent(url.split('/').pop() ?? 'Attachment')}
+                <Paperclip className="size-3.5 shrink-0" />
+                <span className="truncate">{name || 'Attachment'}</span>
               </a>
             ))}
         </div>
