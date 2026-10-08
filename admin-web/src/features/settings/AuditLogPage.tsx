@@ -31,7 +31,7 @@ import { useCan, type Area } from '@/lib/permissions'
 import { useAuditLog, useAuditLogFacets } from './api'
 
 type Category = '' | 'payments' | 'customers' | 'projects' | 'documents' | 'content' | 'team'
-type Range = 'all' | 'today' | '7d' | '30d' | 'custom'
+type Range = 'all' | 'today' | '3d' | 'custom'
 
 const CATEGORIES: { key: Category; label: string; icon: ReactNode; tile: string }[] = [
   { key: '', label: 'All activity', icon: <History className="size-3.5" />, tile: 'bg-ink-100 text-ink-600' },
@@ -138,10 +138,8 @@ function rangeParams(range: Range, custom: { from: string; to: string }) {
   switch (range) {
     case 'today':
       return { created_at__date__gte: iso(today) }
-    case '7d':
-      return { created_at__date__gte: daysAgo(6) }
-    case '30d':
-      return { created_at__date__gte: daysAgo(29) }
+    case '3d':
+      return { created_at__date__gte: daysAgo(2) }
     case 'custom':
       return { created_at__date__gte: custom.from || undefined, created_at__date__lte: custom.to || undefined }
     default:
@@ -193,7 +191,7 @@ export function AuditLogPage() {
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Audit Log" subtitle="Every change made in the admin portal — who did it, to what, and when" />
+      <PageHeader title="Audit Log" subtitle="Every change made in the admin portal — who did it, to what, and when. Entries are kept for 7 days." />
 
       <Card>
         <div className="flex flex-col gap-3 border-b border-ink-100 p-4">
@@ -216,10 +214,9 @@ export function AuditLogPage() {
             <div className="flex shrink-0 rounded-lg border border-ink-200 bg-ink-50/50 p-0.5">
               {(
                 [
-                  ['all', 'All time'],
+                  ['all', 'Last 7 days'],
                   ['today', 'Today'],
-                  ['7d', '7 days'],
-                  ['30d', '30 days'],
+                  ['3d', '3 days'],
                   ['custom', 'Custom'],
                 ] as const
               ).map(([k, l]) => (

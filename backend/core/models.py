@@ -10,7 +10,8 @@ class TimeStampedModel(models.Model):
 
 
 class AuditLog(models.Model):
-    """Immutable record of who changed what and when across the admin portal."""
+    """Record of who changed what and when across the admin portal.
+    Kept for settings.AUDIT_LOG_RETENTION_DAYS — older entries are pruned on every write (see record())."""
 
     actor = models.ForeignKey(
         "accounts.AdminUser", null=True, blank=True, on_delete=models.SET_NULL, related_name="audit_entries"
@@ -27,6 +28,7 @@ class AuditLog(models.Model):
         indexes = [
             models.Index(fields=["target_type", "target_id"]),
             models.Index(fields=["action"]),
+            models.Index(fields=["created_at"]),  # retention prune + newest-first listing
         ]
 
     def __str__(self):
@@ -36,7 +38,7 @@ class AuditLog(models.Model):
     def record(cls, actor, action, target=None, details=None, ip_address=None):
         target_type = target.__class__.__name__ if target is not None else ""
         target_id = str(getattr(target, "pk", "")) if target is not None else ""
-        return cls.objects.create(
+        entry = cls.objects.create(
             actor=actor if getattr(actor, "pk", None) else None,
             action=action,
             target_type=target_type,
@@ -44,6 +46,19 @@ class AuditLog(models.Model):
             details=details or {},
             ip_address=ip_address,
         )
+        cls.prune()
+        return entry
+
+    @classmethod
+    def prune(cls):
+        """Delete entries older than the retention window. Cheap: one indexed range delete."""
+        from datetime import timedelta
+
+        from django.conf import settings
+        from django.utils import timezone
+
+        days = getattr(settings, "AUDIT_LOG_RETENTION_DAYS", 7)
+        return cls.objects.filter(created_at__lt=timezone.now() - timedelta(days=days)).delete()[0]
 
 
 class SiteSettings(models.Model):

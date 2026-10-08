@@ -214,6 +214,9 @@ OTP_RESEND_COOLDOWN_SECONDS = 60
 # Forced off whenever DEBUG is off, so a stray env var in production can't open every account.
 OTP_BYPASS_CODE = os.environ.get("OTP_BYPASS_CODE", "").strip() if DEBUG else ""
 
+# Audit log entries older than this are deleted whenever a new entry is written (core.models.AuditLog.record).
+AUDIT_LOG_RETENTION_DAYS = 7
+
 MAX_UPLOAD_SIZE_MB = 25
 
 FILE_UPLOAD_MAX_MEMORY_SIZE = MAX_UPLOAD_SIZE_MB * 1024 * 1024
