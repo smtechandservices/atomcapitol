@@ -1,4 +1,4 @@
-"""Fills the review queues (KYC, payment verification, change requests) for the SAMPLE customers.
+"""Fills the review queues (KYC, payment verification, change requests, tickets) for the SAMPLE customers.
 
     python manage.py seed_sample_activity --dry-run   # show what would be created
     python manage.py seed_sample_activity             # create it
@@ -6,8 +6,9 @@
 These records are normally created by customers in the app, which the admin API can't do.
 Safety:
 - only touches customers whose email ends with @example.com (the sample buyers) — real customers are never used;
-- calls the same services the app uses (submit_step2/submit_step3/submit_payment_proof), none of which notify,
-  so no email or push goes out;
+- calls the same services the app uses (submit_step2/submit_step3/submit_payment_proof, create_ticket,
+  add_customer_reply), none of which notify, so no email or push goes out. Support replies in the sample
+  conversations are written as messages directly — the admin reply service would email the customer;
 - idempotent: skips anyone who already has a submission/proof/request.
 """
 
@@ -23,11 +24,15 @@ from django.db import transaction
 from reportlab.lib.pagesizes import A5
 from reportlab.pdfgen import canvas
 
-from accounts.models import Customer
+from django.utils import timezone
+
+from accounts.models import AdminUser, Customer
 from kyc import services as kyc_services
 from kyc.models import KYCSubmission
 from payments import services as pay_services
 from payments.models import Milestone, MilestoneChangeRequest, PaymentProof
+from tickets import services as ticket_services
+from tickets.models import Ticket, TicketMessage
 
 SAMPLE_DOMAIN = "@example.com"
 VIDEO = Path(__file__).parent / "assets" / "sample_kyc_video.mp4"
@@ -106,6 +111,38 @@ CHANGE_PLAN = [
 ]
 
 
+# (email, category, subject, status, assigned?, [(who, hours_ago, message)])  — first message is the customer's question
+TICKET_PLAN = [
+    ("aarav.malhotra@example.com", "PAYMENT", "Booking amount receipt not showing", "OPEN", False, [
+        ("customer", 3, "I paid the booking amount of ₹5.4 lakh by NEFT last week but I can't see a receipt in the Documents tab yet."),
+    ]),
+    ("simran.bedi@example.com", "GENERAL", "KYC video keeps failing to upload", "OPEN", False, [
+        ("customer", 1, "The KYC video upload gets stuck at 90% and then fails. I've tried on both Wi-Fi and mobile data."),
+    ]),
+    ("pooja.kulkarni@example.com", "DOCUMENTS", "When will the sale deed be ready?", "IN_PROGRESS", True, [
+        ("customer", 74, "I have completed my payments for this stage. Could you tell me when the sale deed will be ready for registration?"),
+        ("admin", 50, "Thanks Pooja — the draft is with our legal team. We expect to share it within 7 working days."),
+        ("customer", 5, "Thank you. Is there any update? I need to plan leave for the registration day."),
+    ]),
+    ("rohan.kapoor@example.com", "PAYMENT", "Instalment amount higher than agreed", "OPEN", True, [
+        ("customer", 26, "My first instalment shows ₹5,73,750 but as per my agreement it should be ₹5,40,000. Please check."),
+    ]),
+    ("sneha.reddy@example.com", "CONSTRUCTION", "Boundary wall work near plot P-11", "IN_PROGRESS", True, [
+        ("customer", 140, "I visited the site on Sunday and the boundary wall next to my plot is still not started. Is there a timeline?"),
+        ("admin", 118, "Hi Sneha, boundary work for Sector 1 is scheduled to begin next month once layout approvals are registered. We'll share photos when it starts."),
+    ]),
+    ("vikram.sethi@example.com", "GENERAL", "Please update my phone number", "RESOLVED", True, [
+        ("customer", 96, "I have changed my number. Please update it to +91 98731 55092 for all communication."),
+        ("admin", 92, "Done — your phone number is updated. You'll keep signing in with your email as before."),
+    ]),
+    ("siddharth.joshi@example.com", "DOCUMENTS", "NOC required for home loan", "CLOSED", True, [
+        ("customer", 200, "My bank needs a no-objection certificate from the developer to process my home loan for plot R-05."),
+        ("admin", 190, "We've issued the NOC and uploaded it to your Documents tab. Please let us know if the bank needs anything else."),
+        ("customer", 186, "Received it, thank you for the quick help."),
+    ]),
+]
+
+
 class Command(BaseCommand):
     help = "Create sample KYC submissions, payment proofs and change requests for @example.com customers."
 
@@ -122,6 +159,7 @@ class Command(BaseCommand):
             self._kyc(sample)
             self._proofs(sample)
             self._change_requests(sample)
+            self._tickets(sample)
         self.stdout.write(self.style.SUCCESS("Dry run — nothing saved." if dry_run else "Done."))
 
     def _say(self, msg):
@@ -205,3 +243,44 @@ class Command(BaseCommand):
                 plot=c.assigned_plot, requested_by=c, change_type=change_type, proposed_details=details(schedule), reason=reason,
             )
             self._say(f"Change request: {c.name} — {change_type.label}")
+
+    def _tickets(self, sample):
+        # Sample replies are signed by a real support/super admin account so the inbox looks normal.
+        agent = (
+            AdminUser.objects.filter(role=AdminUser.Role.SUPPORT, is_active=True).order_by("id").first()
+            or AdminUser.objects.filter(role=AdminUser.Role.SUPER_ADMIN, is_active=True).order_by("id").first()
+        )
+        now = timezone.now()
+        for email, category, subject, status, assigned, messages in TICKET_PLAN:
+            c = sample.get(email)
+            if not c:
+                continue
+            if Ticket.objects.filter(customer=c, subject=subject).exists():
+                self._say(f"Ticket: {email} '{subject}' already exists — skipped")
+                continue
+            label = f"Ticket: {c.name} — {subject} ({status.replace('_', ' ').lower()}, {len(messages)} message{'s' if len(messages) != 1 else ''})"
+            if self.dry_run:
+                self._say(label)
+                continue
+            _, first_hours, first_text = messages[0]
+            ticket = ticket_services.create_ticket(c, category=category, subject=subject, description=first_text)
+            stamps = [(ticket.messages.get(), first_hours)]
+            for who, hours_ago, text in messages[1:]:
+                if who == "customer":
+                    msg = ticket_services.add_customer_reply(ticket, c, message=text)
+                else:
+                    msg = TicketMessage.objects.create(
+                        ticket=ticket, sender_type=TicketMessage.SenderType.ADMIN, sender_admin=agent, message=text
+                    )
+                stamps.append((msg, hours_ago))
+            # Backdate so waiting times look real (auto_now_add fields need a queryset update).
+            for msg, hours_ago in stamps:
+                TicketMessage.objects.filter(pk=msg.pk).update(created_at=now - timedelta(hours=hours_ago))
+            Ticket.objects.filter(pk=ticket.pk).update(
+                status=status,
+                assigned_to=agent if assigned else None,
+                created_at=now - timedelta(hours=first_hours),
+                updated_at=now - timedelta(hours=messages[-1][1]),
+            )
+            self._say(label)
+
