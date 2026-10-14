@@ -35,9 +35,33 @@ class ProjectViewSet(viewsets.ModelViewSet):
     filterset_fields = ["development_status", "is_published"]
     search_fields = ["name", "location"]
 
+    def get_permissions(self):
+        if self.action in ("destroy", "delete_check"):
+            return [role_required("SUPER_ADMIN")()]
+        return super().get_permissions()
+
     def perform_create(self, serializer):
         instance = serializer.save()
         AuditLog.record(self.request.user, "project.create", target=instance, ip_address=self.request.client_ip)
+
+    @action(detail=True, methods=["get"], url_path="delete-check")
+    def delete_check(self, request, pk=None):
+        return Response(services.project_delete_summary(self.get_object()))
+
+    def destroy(self, request, *args, **kwargs):
+        project = self.get_object()
+        summary = services.project_delete_summary(project)
+        if not summary["can_delete"]:
+            return Response(
+                {"detail": f"{summary['blocked_count']} plot(s) still have buyers or payment history — this project can't be deleted.", "errors": {}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        AuditLog.record(
+            request.user, "project.delete", target=project,
+            details={"name": project.name, **summary["will_delete"]}, ip_address=request.client_ip,
+        )
+        project.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     def perform_update(self, serializer):
         instance = serializer.save()
@@ -82,13 +106,44 @@ class PlotViewSet(viewsets.ModelViewSet):
     filterset_fields = ["project", "status"]
     search_fields = ["plot_number", "block_sector"]
 
+    def get_permissions(self):
+        # Accounts manage inventory (create, import, assign) but editing/deleting a plot is super admin only.
+        if self.action in ("update", "partial_update", "destroy", "delete_check"):
+            return [role_required("SUPER_ADMIN")()]
+        return super().get_permissions()
+
+    @action(detail=True, methods=["get"], url_path="delete-check")
+    def delete_check(self, request, pk=None):
+        reasons = services.plot_delete_blockers(self.get_object())
+        return Response({"can_delete": not reasons, "reasons": reasons})
+
+    def destroy(self, request, *args, **kwargs):
+        plot = self.get_object()
+        reasons = services.plot_delete_blockers(plot)
+        if reasons:
+            return Response({"detail": f"Plot {plot.plot_number} can't be deleted: {'; '.join(reasons)}.", "errors": {}}, status=status.HTTP_400_BAD_REQUEST)
+        AuditLog.record(
+            request.user, "plot.delete", target=plot,
+            details={"plot_number": plot.plot_number, "project": plot.project.name, "milestones": plot.milestones.count()},
+            ip_address=request.client_ip,
+        )
+        plot.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
     def perform_create(self, serializer):
         instance = serializer.save()
         AuditLog.record(self.request.user, "plot.create", target=instance, ip_address=self.request.client_ip)
 
     def perform_update(self, serializer):
+        before = {f: str(getattr(serializer.instance, f)) for f in serializer.validated_data}
         instance = serializer.save()
-        AuditLog.record(self.request.user, "plot.update", target=instance, ip_address=self.request.client_ip)
+        AuditLog.record(
+            self.request.user,
+            "plot.update",
+            target=instance,
+            details={f: {"from": before[f], "to": str(getattr(instance, f))} for f in before if before[f] != str(getattr(instance, f))},
+            ip_address=self.request.client_ip,
+        )
 
     @action(detail=False, methods=["post"], url_path="bulk-import", parser_classes=[MultiPartParser])
     def bulk_import(self, request):

@@ -1,6 +1,21 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
-import type { DocumentItem, Paginated } from '@/types'
+import type { DocumentItem, DocumentStats, Paginated } from '@/types'
+
+/**
+ * Save a document's file. Goes through the authenticated download endpoint because browsers ignore
+ * <a download> for cross-origin media URLs (and would just open the PDF instead).
+ */
+export async function downloadDocument(id: number, fallbackName = 'document.pdf') {
+  const res = await api.get<Blob>(`/admin/documents/${id}/download/`, { responseType: 'blob' })
+  const match = /filename="?([^";]+)"?/i.exec(res.headers['content-disposition'] ?? '')
+  const href = URL.createObjectURL(res.data)
+  const a = document.createElement('a')
+  a.href = href
+  a.download = match?.[1] ?? fallbackName
+  a.click()
+  URL.revokeObjectURL(href)
+}
 
 export interface DocumentFilters {
   page?: number
@@ -9,10 +24,22 @@ export interface DocumentFilters {
   status?: string
   customer?: number | string
   project?: number | string
+  is_visible_to_customer?: string
 }
 
-export function useDocuments(filters: DocumentFilters) {
+export function useDocumentStats(project?: string) {
   return useQuery({
+    queryKey: ['documents', 'stats', project ?? 'all'],
+    queryFn: async () => {
+      const { data } = await api.get<DocumentStats>('/admin/documents/stats/', { params: { project: project || undefined } })
+      return data
+    },
+  })
+}
+
+export function useDocuments(filters: DocumentFilters, enabled = true) {
+  return useQuery({
+    enabled,
     queryKey: ['documents', filters],
     queryFn: async () => {
       const { data } = await api.get<Paginated<DocumentItem>>('/admin/documents/', { params: filters })
@@ -57,6 +84,24 @@ export function useDeleteDocument() {
   return useMutation({
     mutationFn: async (id: number) => {
       await api.delete(`/admin/documents/${id}/`)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['documents'] }),
+  })
+}
+
+/** PATCH a document — multipart when replacing the file, JSON otherwise. */
+export function useUpdateDocument() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, values }: { id: number; values: Partial<Omit<DocumentCreateValues, 'file'>> & { file?: File } }) => {
+      if (values.file) {
+        const form = new FormData()
+        Object.entries(values).forEach(([k, v]) => v !== undefined && form.append(k, v instanceof File ? v : String(v)))
+        const { data } = await api.patch<DocumentItem>(`/admin/documents/${id}/`, form, { headers: { 'Content-Type': 'multipart/form-data' } })
+        return data
+      }
+      const { data } = await api.patch<DocumentItem>(`/admin/documents/${id}/`, values)
+      return data
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['documents'] }),
   })

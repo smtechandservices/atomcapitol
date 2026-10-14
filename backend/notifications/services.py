@@ -24,7 +24,7 @@ def notify_customer(customer, notif_type, title, body, deep_link=""):
     return notification
 
 
-def _resolve_recipients(campaign):
+def resolve_recipients(campaign):
     from accounts.models import Customer
 
     if campaign.target_type == NotificationCampaign.TargetType.ALL:
@@ -35,7 +35,7 @@ def _resolve_recipients(campaign):
 
 
 def send_campaign(campaign):
-    recipients = _resolve_recipients(campaign)
+    recipients = resolve_recipients(campaign)
     count = 0
     for customer in recipients:
         notify_customer(customer, "ANNOUNCEMENT", campaign.title, campaign.body)

@@ -1,3 +1,5 @@
+import hmac
+
 from django.conf import settings
 from django.core.mail import send_mail
 from django.utils import timezone
@@ -59,6 +61,15 @@ class OTPVerifyError(Exception):
 
 
 def verify_otp(customer, code):
+    # Dev/testing bypass (settings.OTP_BYPASS_CODE is always "" unless DEBUG). Logged so it's never silent.
+    if settings.OTP_BYPASS_CODE and hmac.compare_digest(str(code), settings.OTP_BYPASS_CODE):
+        from core.models import AuditLog
+
+        AuditLog.record(None, "customer.otp_bypass_login", target=customer, details={"email": customer.email})
+        customer.last_login_at = timezone.now()
+        customer.save(update_fields=["last_login_at"])
+        return None
+
     otp = customer.otps.order_by("-created_at").first()
     if otp is None:
         raise OTPVerifyError("No verification code found. Please request a new one.", code="no_otp")
@@ -88,3 +99,25 @@ def next_route_for_status(kyc_status):
         Customer.KYCStatus.REJECTED: "rejected",
         Customer.KYCStatus.APPROVED: "home",
     }.get(kyc_status, "onboarding")
+
+
+def customer_delete_blockers(customer):
+    """Reasons this customer can't be deleted. Deleting cascades to payment proofs, KYC, tickets,
+    documents (incl. receipts) and change requests, so only records with none of that may go —
+    i.e. wrongly created entries. Everyone else should be unassigned or deactivated instead."""
+    reasons = []
+    if customer.assigned_plot_id:
+        reasons.append("assigned to a plot — unassign them first")
+    if customer.payment_proofs.exists():
+        reasons.append("has submitted payments")
+    kyc = getattr(customer, "kyc_submission", None)
+    if kyc is not None and (kyc.step2_status or kyc.step3_status):
+        reasons.append("has submitted KYC")
+    if customer.tickets.exists():
+        reasons.append("has support tickets")
+    if customer.documents.exists():
+        reasons.append("has documents")
+    if customer.change_requests.exists():
+        reasons.append("has schedule change requests")
+    return reasons
+

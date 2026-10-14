@@ -1,7 +1,8 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: var(--font-raleway), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
 
   /* Atom Capitol brand gold, sampled from atomcapitol.com */
   --color-gold-50: #fdf8ef;
@@ -49,4 +50,23 @@ body {
 }
 ::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/* Thin scrollbar for dark surfaces (sidebar). Thumb only shows strongly on hover. */
+.scrollbar-dark::-webkit-scrollbar {
+  width: 4px;
+}
+.scrollbar-dark::-webkit-scrollbar-thumb {
+  background-color: var(--color-ink-600);
+  border-radius: 999px;
+}
+.scrollbar-dark:hover::-webkit-scrollbar-thumb {
+  background-color: var(--color-ink-400);
+}
+/* Firefox: the standard properties would override the webkit styles above in Chrome, so scope them. */
+@supports not selector(::-webkit-scrollbar) {
+  .scrollbar-dark {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-ink-600) transparent;
+  }
 }

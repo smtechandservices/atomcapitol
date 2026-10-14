@@ -10,6 +10,7 @@ urlpatterns = [
     path("customer/kyc/status/", views.KYCStatusView.as_view(), name="kyc-status"),
     # Admin review queue
     path("admin/kyc-queue/", views.KYCQueueListView.as_view(), name="admin-kyc-queue"),
+    path("admin/kyc-queue/stats/", views.KYCQueueStatsView.as_view(), name="admin-kyc-queue-stats"),
     path("admin/kyc-queue/<int:pk>/", views.KYCQueueDetailView.as_view(), name="admin-kyc-queue-detail"),
     path("admin/kyc-queue/<int:pk>/decide/", views.KYCDecideView.as_view(), name="admin-kyc-decide"),
 ]

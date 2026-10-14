@@ -1,3 +1,5 @@
+from django.db.models import Count, F, OuterRef, Q, Subquery
+from django.db.models.functions import Substr
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import generics, status
 from rest_framework.exceptions import NotFound
@@ -10,7 +12,7 @@ from accounts.models import AdminUser
 from core.permissions import IsKYCApproved, role_required
 
 from . import services
-from .models import Ticket
+from .models import Ticket, TicketMessage
 from .serializers import (
     AdminTicketAssignSerializer,
     AdminTicketDetailSerializer,
@@ -84,21 +86,84 @@ class CustomerTicketReplyView(APIView):
 # ---------------------------------------------------------------------------
 # Admin — 7.14 Tickets
 # ---------------------------------------------------------------------------
+ACTIVE_STATUSES = [Ticket.Status.OPEN, Ticket.Status.IN_PROGRESS]
+
+
+def admin_ticket_queryset():
+    """Tickets annotated with the latest message (time, sender, preview) and the message count.
+    Replies don't touch Ticket.updated_at, so `last_message_at` is the real "last activity"."""
+    latest = TicketMessage.objects.filter(ticket=OuterRef("pk")).order_by("-created_at")
+    count = TicketMessage.objects.filter(ticket=OuterRef("pk")).values("ticket").annotate(c=Count("id")).values("c")
+    return Ticket.objects.select_related("customer__assigned_plot__project", "assigned_to").annotate(
+        last_message_at=Subquery(latest.values("created_at")[:1]),
+        last_sender_type=Subquery(latest.values("sender_type")[:1]),
+        last_message=Substr(Subquery(latest.values("message")[:1]), 1, 160),
+        message_count=Subquery(count),
+    )
+
+
+def awaiting_reply_q():
+    """Active tickets where the customer spoke last — the ball is in support's court."""
+    return Q(status__in=ACTIVE_STATUSES, last_sender_type=TicketMessage.SenderType.CUSTOMER)
+
+
 class AdminTicketListView(generics.ListAPIView):
+    """Filters: status, status__in, category, assigned_to, assigned_to__isnull, ?awaiting=true."""
+
     serializer_class = AdminTicketListSerializer
     permission_classes = [role_required("SUPER_ADMIN", "SUPPORT")]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    filterset_fields = ["status", "category", "assigned_to"]
-    search_fields = ["subject", "customer__email"]
-    ordering_fields = ["created_at", "updated_at"]
-    ordering = ["-created_at"]
-    queryset = Ticket.objects.select_related("customer", "assigned_to")
+    filterset_fields = {"status": ["exact", "in"], "category": ["exact"], "assigned_to": ["exact", "isnull"]}
+    search_fields = ["subject", "description", "customer__email", "customer__name", "customer__assigned_plot__plot_number"]
+    ordering_fields = ["created_at", "updated_at", "last_message_at"]
+
+    def get_queryset(self):
+        qs = admin_ticket_queryset()
+        if self.request.query_params.get("awaiting") == "true":
+            qs = qs.filter(awaiting_reply_q())
+        return qs.order_by(F("last_message_at").desc(nulls_last=True), "-id")
+
+
+class AdminTicketStatsView(APIView):
+    permission_classes = [role_required("SUPER_ADMIN", "SUPPORT")]
+
+    def get(self, request):
+        qs = admin_ticket_queryset()
+        active = Q(status__in=ACTIVE_STATUSES)
+        return Response(
+            qs.aggregate(
+                open=Count("id", filter=Q(status=Ticket.Status.OPEN)),
+                in_progress=Count("id", filter=Q(status=Ticket.Status.IN_PROGRESS)),
+                resolved=Count("id", filter=Q(status=Ticket.Status.RESOLVED)),
+                closed=Count("id", filter=Q(status=Ticket.Status.CLOSED)),
+                awaiting_reply=Count("id", filter=awaiting_reply_q()),
+                unassigned_active=Count("id", filter=active & Q(assigned_to__isnull=True)),
+                mine_active=Count("id", filter=active & Q(assigned_to=request.user)),
+            )
+        )
+
+
+class AdminTicketAssigneesView(APIView):
+    """Active admins who can work tickets — the admin-users endpoint is SUPER_ADMIN-only, so support agents need this."""
+
+    permission_classes = [role_required("SUPER_ADMIN", "SUPPORT")]
+
+    def get(self, request):
+        users = AdminUser.objects.filter(is_active=True, role__in=["SUPER_ADMIN", "SUPPORT"]).order_by("first_name", "email")
+        return Response(
+            [
+                {"id": u.id, "email": u.email, "name": f"{u.first_name} {u.last_name}".strip() or u.email, "role": u.role}
+                for u in users
+            ]
+        )
 
 
 class AdminTicketDetailView(generics.RetrieveAPIView):
     serializer_class = AdminTicketDetailSerializer
     permission_classes = [role_required("SUPER_ADMIN", "SUPPORT")]
-    queryset = Ticket.objects.select_related("customer", "assigned_to")
+    queryset = Ticket.objects.select_related("customer__assigned_plot__project", "assigned_to").prefetch_related(
+        "messages__sender_customer", "messages__sender_admin"
+    )
 
 
 class AdminTicketReplyView(APIView):

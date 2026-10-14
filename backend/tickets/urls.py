@@ -9,6 +9,8 @@ urlpatterns = [
     path("customer/tickets/<int:pk>/reply/", views.CustomerTicketReplyView.as_view(), name="customer-ticket-reply"),
     # Admin
     path("admin/tickets/", views.AdminTicketListView.as_view(), name="admin-tickets"),
+    path("admin/tickets/stats/", views.AdminTicketStatsView.as_view(), name="admin-ticket-stats"),
+    path("admin/tickets/assignees/", views.AdminTicketAssigneesView.as_view(), name="admin-ticket-assignees"),
     path("admin/tickets/<int:pk>/", views.AdminTicketDetailView.as_view(), name="admin-ticket-detail"),
     path("admin/tickets/<int:pk>/reply/", views.AdminTicketReplyView.as_view(), name="admin-ticket-reply"),
     path("admin/tickets/<int:pk>/assign/", views.AdminTicketAssignView.as_view(), name="admin-ticket-assign"),

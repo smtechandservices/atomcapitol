@@ -19,6 +19,37 @@ export function usePlots(filters: PlotFilters) {
   })
 }
 
+export function usePlot(id: number | null) {
+  return useQuery({
+    queryKey: ['plots', 'detail', id],
+    queryFn: async () => {
+      const { data } = await api.get<Plot>(`/admin/plots/${id}/`)
+      return data
+    },
+    enabled: id !== null,
+  })
+}
+
+/** Plot counts per status (optionally for one project) — reads `count` off three page-1 requests. */
+export function usePlotStatusCounts(project?: number | string) {
+  return useQuery({
+    queryKey: ['plots', 'status-counts', project ?? 'all'],
+    queryFn: async () => {
+      const statuses = ['AVAILABLE', 'BOOKED', 'SOLD'] as const
+      const results = await Promise.all(
+        statuses.map((status) => api.get<Paginated<unknown>>('/admin/plots/', { params: { project: project || undefined, status, page: 1 } })),
+      )
+      const [available, booked, sold] = results.map((r) => r.data.count)
+      return { available, booked, sold, total: available + booked + sold }
+    },
+  })
+}
+
+export interface BulkRowError {
+  row: number
+  error: string
+}
+
 export function usePlotHistory(plotId: number | undefined) {
   return useQuery({
     queryKey: ['plot-history', plotId],
@@ -58,7 +89,10 @@ export function useUpdatePlot() {
       const { data } = await api.patch<Plot>(`/admin/plots/${id}/`, values)
       return data
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['plots'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['plots'] })
+      qc.invalidateQueries({ queryKey: ['project'] })
+    },
   })
 }
 
@@ -81,6 +115,24 @@ export function useAssignPlot(plotId: number) {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['plots'] })
+      qc.invalidateQueries({ queryKey: ['customers'] })
+      qc.invalidateQueries({ queryKey: ['plot-history', plotId] })
+    },
+  })
+}
+
+/** Assign where the plot is chosen at submit time (customer pages), not fixed per hook. */
+export function useAssignToPlot() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ plotId, payload }: { plotId: number; payload: AssignPayload }) => {
+      const { data } = await api.post<Plot>(`/admin/plots/${plotId}/assign/`, payload)
+      return data
+    },
+    onSuccess: (_data, { plotId }) => {
+      qc.invalidateQueries({ queryKey: ['plots'] })
+      qc.invalidateQueries({ queryKey: ['customers'] })
+      qc.invalidateQueries({ queryKey: ['customer'] })
       qc.invalidateQueries({ queryKey: ['plot-history', plotId] })
     },
   })
@@ -95,6 +147,7 @@ export function useUnassignPlot(plotId: number) {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['plots'] })
+      qc.invalidateQueries({ queryKey: ['customers'] })
       qc.invalidateQueries({ queryKey: ['plot-history', plotId] })
     },
   })
@@ -109,6 +162,7 @@ export function useTransferPlot(plotId: number) {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['plots'] })
+      qc.invalidateQueries({ queryKey: ['customers'] })
       qc.invalidateQueries({ queryKey: ['plot-history', plotId] })
     },
   })
@@ -121,13 +175,11 @@ export function useGenerateSchedule(plotId: number) {
       const { data } = await api.post(`/admin/plots/${plotId}/generate-schedule/`)
       return data
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['milestones'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['milestones'] })
+      qc.invalidateQueries({ queryKey: ['plots'] })
+    },
   })
-}
-
-export interface BulkRowError {
-  row: number
-  error: string
 }
 
 export function useBulkImportPlots() {
@@ -157,6 +209,32 @@ export function useBulkAssignPlots() {
       })
       return data
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['plots'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['plots'] })
+      qc.invalidateQueries({ queryKey: ['customers'] })
+    },
+  })
+}
+
+export function usePlotDeleteCheck(id: number, enabled: boolean) {
+  return useQuery({
+    queryKey: ['plots', 'delete-check', id],
+    queryFn: async () => (await api.get<{ can_delete: boolean; reasons: string[] }>(`/admin/plots/${id}/delete-check/`)).data,
+    enabled,
+    staleTime: 0,
+  })
+}
+
+export function useDeletePlot() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: number) => {
+      await api.delete(`/admin/plots/${id}/`)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['plots'] })
+      qc.invalidateQueries({ queryKey: ['projects'] })
+      qc.invalidateQueries({ queryKey: ['projects-all'] })
+    },
   })
 }

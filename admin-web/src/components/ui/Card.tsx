@@ -38,11 +38,13 @@ export function StatCard({
   value,
   icon,
   accent,
+  className,
 }: {
   label: string
   value: ReactNode
   icon?: ReactNode
   accent?: 'gold' | 'ink' | 'danger' | 'success'
+  className?: string
 }) {
   const accentClass = {
     gold: 'bg-gold-100 text-gold-700',
@@ -52,7 +54,7 @@ export function StatCard({
   }[accent ?? 'ink']
 
   return (
-    <Card className="flex items-center gap-4 p-4">
+    <Card className={clsx('flex items-center gap-4 p-4', className)}>
       {icon && <div className={clsx('flex size-11 shrink-0 items-center justify-center rounded-lg', accentClass)}>{icon}</div>}
       <div className="min-w-0">
         <p className="truncate text-xs font-medium text-ink-400">{label}</p>

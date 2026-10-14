@@ -1,11 +1,11 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import type { AdminUser, AuditLogEntry, CompanySettings, Paginated } from '@/types'
 
 // ---------------------------------------------------------------------------
 // Admin Users
 // ---------------------------------------------------------------------------
-export function useAdminUsers(filters: { page?: number; search?: string; role?: string } = {}) {
+export function useAdminUsers(filters: { page?: number; search?: string; role?: string; is_active?: string } = {}) {
   return useQuery({
     queryKey: ['admin-users', filters],
     queryFn: async () => {
@@ -60,13 +60,37 @@ export function useDeleteAdminUser() {
 // ---------------------------------------------------------------------------
 // Audit log
 // ---------------------------------------------------------------------------
-export function useAuditLog(filters: { page?: number; search?: string; action?: string } = {}) {
+export interface AuditLogFilters {
+  page?: number
+  search?: string
+  action?: string
+  category?: string
+  actor?: string
+  created_at__date__gte?: string
+  created_at__date__lte?: string
+}
+
+export function useAuditLog(filters: AuditLogFilters = {}) {
   return useQuery({
     queryKey: ['audit-log', filters],
     queryFn: async () => {
       const { data } = await api.get<Paginated<AuditLogEntry>>('/admin/audit-log/', { params: filters })
       return data
     },
+    placeholderData: keepPreviousData,
+  })
+}
+
+export function useAuditLogFacets() {
+  return useQuery({
+    queryKey: ['audit-log', 'facets'],
+    queryFn: async () => {
+      const { data } = await api.get<{ actions: { action: string; count: number }[]; actors: { id: number; name: string; email: string }[] }>(
+        '/admin/audit-log/facets/',
+      )
+      return data
+    },
+    staleTime: 60_000,
   })
 }
 
