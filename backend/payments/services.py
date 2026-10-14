@@ -1,4 +1,5 @@
 from datetime import date
+from decimal import Decimal
 
 from dateutil.relativedelta import relativedelta
 from django.db import transaction
@@ -17,37 +18,137 @@ class PaymentError(Exception):
         super().__init__(message)
 
 
+# Instalment 1 is the booking payment the buyer uploads as their KYC Step 2 receipt;
+# the generated schedule covers instalments 2..instalment_count.
+KYC_INSTALMENT_SEQUENCE = 1
+KYC_PAYMENT_MODE = "KYC receipt"
+
+
+def _split(amount, parts):
+    """Even split; any rounding remainder is absorbed into the last part."""
+    amount = max(amount, Decimal(0))
+    base = round(amount / parts, 2)
+    return [base] * (parts - 1) + [amount - base * (parts - 1)]
+
+
 @transaction.atomic
 def generate_milestone_schedule(plot, start_date=None):
-    """Splits (total_value - amount_paid_outside_app) into `instalment_count` monthly
-    instalments. Any rounding remainder is absorbed into the last instalment.
+    """Splits what's left after the booking instalment into instalments 2..instalment_count,
+    monthly. If the buyer's KYC receipt is already approved, it's recorded as instalment 1 first.
     """
     if not (plot.total_value and plot.instalment_count):
         raise PaymentError("Plot is missing total_value / instalment_count.", "missing_commercial_position")
+    if plot.instalment_count < 2:
+        raise PaymentError("Instalment count must be at least 2 (instalment 1 is the KYC receipt).", "invalid_instalment_count")
 
-    remaining = plot.total_value - (plot.amount_paid_outside_app or 0)
+    first = plot.milestones.filter(sequence=KYC_INSTALMENT_SEQUENCE).first() or _record_approved_kyc_receipt(plot)
     n = plot.instalment_count
-    base = round(remaining / n, 2)
+    if first and first.name != f"Instalment 1 of {n}":
+        first.name = f"Instalment 1 of {n}"
+        first.save(update_fields=["name"])
+    remaining = plot.total_value - (plot.amount_paid_outside_app or 0) - (first.amount if first else 0)
     start = start_date or (date.today() + relativedelta(months=1))
 
-    milestones = []
-    running_total = 0
-    for i in range(1, n + 1):
-        amount = base if i < n else (remaining - running_total)
-        running_total += amount
-        milestones.append(
-            Milestone(
-                plot=plot,
-                sequence=i,
-                name=f"Instalment {i} of {n}",
-                amount=amount,
-                due_date=start + relativedelta(months=i - 1),
-                status=Milestone.Status.UPCOMING,
-            )
+    milestones = [
+        Milestone(
+            plot=plot,
+            sequence=i,
+            name=f"Instalment {i} of {n}",
+            amount=amount,
+            due_date=start + relativedelta(months=i - 2),
+            status=Milestone.Status.UPCOMING,
         )
+        for i, amount in zip(range(2, n + 1), _split(remaining, n - 1))
+    ]
     Milestone.objects.bulk_create(milestones)
     refresh_plot_milestone_statuses(plot)
     return plot.milestones.all()
+
+
+def _record_approved_kyc_receipt(plot):
+    from kyc.models import KYCSubmission, StepStatus
+
+    submission = (
+        KYCSubmission.objects.filter(customer__assigned_plot=plot, step2_status=StepStatus.APPROVED)
+        .exclude(receipt_amount=None)
+        .order_by("reviewed_at")
+        .first()
+    )
+    return record_kyc_instalment(submission, resplit=False) if submission else None
+
+
+@transaction.atomic
+def record_kyc_instalment(submission, *, resplit=True, receipt_entries=None):
+    """Records an approved KYC Step 2 receipt as instalment 1 (PAID) on the buyer's plot, with the
+    receipt as its approved proof. Then re-splits the still-unpaid instalments so the plan still
+    adds up to total_value. No-op if the plot already has an instalment 1 (e.g. a legacy schedule).
+
+    `receipt_entries` (admin-verified payments, see render_payment_receipt_pdf) set the instalment
+    amount and issue a payment receipt document; without them no receipt is issued.
+    """
+    customer = submission.customer
+    plot = customer.assigned_plot
+    if plot is None or submission.receipt_amount is None:
+        return None
+    if plot.milestones.filter(sequence=KYC_INSTALMENT_SEQUENCE).exists():
+        return None
+
+    amount = submission.receipt_amount
+    paid_on = submission.receipt_payment_date or date.today()
+    payment_mode, reference = KYC_PAYMENT_MODE, ""
+    if receipt_entries:
+        amount = sum(Decimal(e["amount"]) for e in receipt_entries)
+        paid_on = max(e["payment_date"] for e in receipt_entries)
+        payment_mode = ", ".join(dict.fromkeys(e["payment_by"] for e in receipt_entries))[:50]
+        reference = ", ".join(e["reference"] for e in receipt_entries if e.get("reference"))[:100]
+    n = plot.instalment_count
+    milestone = Milestone.objects.create(
+        plot=plot,
+        sequence=KYC_INSTALMENT_SEQUENCE,
+        name=f"Instalment 1 of {n}" if n else "Instalment 1",
+        description="Booking payment submitted with KYC",
+        amount=amount,
+        due_date=paid_on,
+        status=Milestone.Status.PAID,
+        paid_date=paid_on,
+        payment_mode=payment_mode,
+        transaction_reference=reference,
+    )
+    proof = PaymentProof.objects.create(
+        milestone=milestone,
+        submitted_by=customer,
+        file=submission.receipt_file.name,
+        claimed_amount=amount,
+        payment_date=paid_on,
+        payment_mode=payment_mode,
+        transaction_reference=reference,
+        status=PaymentProof.Status.APPROVED,
+        reviewed_by=submission.reviewed_by,
+        reviewed_at=submission.reviewed_at,
+    )
+
+    if receipt_entries:
+        from documents.services import generate_receipt_document
+
+        generate_receipt_document(milestone, proof, amount, entries=receipt_entries)
+
+    if resplit and plot.total_value:
+        _resplit_unpaid(plot)
+    refresh_plot_milestone_statuses(plot)
+    return milestone
+
+
+def _resplit_unpaid(plot):
+    settled = [Milestone.Status.PAID, Milestone.Status.UNDER_REVIEW]
+    unpaid = list(plot.milestones.exclude(status__in=settled).order_by("sequence"))
+    if not unpaid:
+        return
+    settled_total = sum(m.amount for m in plot.milestones.filter(status__in=settled))
+    remaining = plot.total_value - (plot.amount_paid_outside_app or 0) - settled_total
+    for m, amount in zip(unpaid, _split(remaining, len(unpaid))):
+        if m.amount != amount:
+            m.amount = amount
+            m.save(update_fields=["amount"])
 
 
 def refresh_plot_milestone_statuses(plot):

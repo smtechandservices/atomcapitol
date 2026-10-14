@@ -278,7 +278,8 @@ class Command(BaseCommand):
         self._kyc_step2(c["active"], hours_ago=24 * 150)
         self._kyc_step3(c["active"], hours_ago=24 * 150)
         self._approve_kyc(c["active"])
-        ms = list(c["active"].assigned_plot.milestones.order_by("sequence"))
+        # Instalment 1 is the KYC receipt, already PAID on approval.
+        ms = list(c["active"].assigned_plot.milestones.filter(sequence__gte=2).order_by("sequence"))
         for i, m in enumerate(ms[:3]):
             m.refresh_from_db()
             proof = self._proof(m, c["active"], ref=f"NEFT-RK-{1000 + i}")
@@ -292,7 +293,7 @@ class Command(BaseCommand):
         self._kyc_step2(c["overdue"], hours_ago=24 * 90)
         self._kyc_step3(c["overdue"], hours_ago=24 * 90)
         self._approve_kyc(c["overdue"])
-        m1 = c["overdue"].assigned_plot.milestones.order_by("sequence").first()
+        m1 = c["overdue"].assigned_plot.milestones.filter(sequence__gte=2).order_by("sequence").first()
         bad = self._proof(m1, c["overdue"], ref="UPI-SB-0001")
         pay_services.reject_payment_proof(bad, self.admin, reason="Amount on the screenshot does not match the milestone.")
         m1.refresh_from_db()
@@ -327,11 +328,11 @@ class Command(BaseCommand):
 
         # 11. Fully paid-up buyer whose registry is in progress.
         c["done"] = self._buyer((1, 5), "tanvi", "Tanvi Desai", "+91 91111 00011",
-                                instalments=3, paid_outside=5000000, start_months_ago=4)
+                                instalments=3, paid_outside=4000000, start_months_ago=4)
         self._kyc_step2(c["done"], hours_ago=24 * 130)
         self._kyc_step3(c["done"], hours_ago=24 * 130)
         self._approve_kyc(c["done"])
-        for i, m in enumerate(c["done"].assigned_plot.milestones.order_by("sequence")):
+        for i, m in enumerate(c["done"].assigned_plot.milestones.filter(sequence__gte=2).order_by("sequence")):
             m.refresh_from_db()
             pay_services.approve_payment_proof(self._proof(m, c["done"], ref=f"RTGS-TD-{i}"), self.admin)
         plot = c["done"].assigned_plot

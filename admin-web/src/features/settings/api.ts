@@ -93,3 +93,14 @@ export function useUpdateCompanySettings() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['company-settings'] }),
   })
 }
+
+export function useUpdateReceiptTerms() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (receipt_terms: string) => {
+      const { data } = await api.patch<CompanySettings>('/admin/settings/', { receipt_terms })
+      return data
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['company-settings'] }),
+  })
+}

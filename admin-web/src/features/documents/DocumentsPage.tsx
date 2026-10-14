@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Plus, Search, Trash2, ExternalLink } from 'lucide-react'
+import { Plus, Search, Trash2 } from 'lucide-react'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Card } from '@/components/ui/Card'
 import { DataTable, type Column } from '@/components/ui/DataTable'
@@ -12,7 +12,8 @@ import { Badge } from '@/components/ui/Badge'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import { useToast } from '@/components/ui/Toast'
 import { apiErrorMessage } from '@/lib/api'
-import { absoluteMediaUrl, formatDate } from '@/lib/format'
+import { formatDate } from '@/lib/format'
+import { FileActions } from '@/components/ui/FileActions'
 import type { DocumentItem } from '@/types'
 import { useCreateDocument, useDeleteDocument, useDocuments } from './api'
 import { useCustomers } from '@/features/customers/api'
@@ -40,11 +41,7 @@ export function DocumentsPage() {
       header: '',
       render: (d) => (
         <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-          {d.file && (
-            <a href={absoluteMediaUrl(d.file) ?? undefined} target="_blank" rel="noreferrer" className="text-ink-400 hover:text-ink-700">
-              <ExternalLink className="size-4" />
-            </a>
-          )}
+          {d.file && <FileActions path={d.file} label={d.name} />}
           <button onClick={() => setDeleteTarget(d)} className="text-ink-400 hover:text-red-600">
             <Trash2 className="size-4" />
           </button>

@@ -6,5 +6,6 @@ urlpatterns = [
     path("health/", views.HealthCheckView.as_view(), name="health-check"),
     path("public/settings/", views.PublicSiteSettingsView.as_view(), name="public-settings"),
     path("admin/settings/", views.AdminSiteSettingsView.as_view(), name="admin-settings"),
+    path("admin/settings/receipt-terms.pdf", views.AdminReceiptTermsPdfView.as_view(), name="admin-receipt-terms-pdf"),
     path("admin/audit-log/", views.AuditLogListView.as_view(), name="admin-audit-log"),
 ]

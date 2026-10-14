@@ -23,9 +23,18 @@ export function useKycSubmission(id: number | string | undefined) {
   })
 }
 
+export interface ReceiptEntry {
+  payment_by: string
+  payment_date: string
+  bank: string
+  reference: string
+  amount: string
+}
+
 export interface KycDecisionPayload {
   step2_decision?: 'APPROVED' | 'REJECTED'
   step2_reason?: string
+  receipt_entries?: ReceiptEntry[]
   step3_decision?: 'APPROVED' | 'REJECTED'
   step3_reason?: string
 }

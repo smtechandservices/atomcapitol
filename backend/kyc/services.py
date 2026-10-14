@@ -1,5 +1,6 @@
 import random
 
+from django.db import transaction
 from django.utils import timezone
 
 from accounts.models import Customer
@@ -71,8 +72,10 @@ def _recompute_customer_status(customer, submission):
     return new_status
 
 
-def decide_step(submission, *, step, decision, reason, admin_user):
-    """step in {'STEP2','STEP3'}; decision in {'APPROVED','REJECTED'}."""
+@transaction.atomic
+def decide_step(submission, *, step, decision, reason, admin_user, receipt_entries=None):
+    """step in {'STEP2','STEP3'}; decision in {'APPROVED','REJECTED'}.
+    `receipt_entries` on a STEP2 approval also issues the first-payment receipt PDF."""
     field_status = "step2_status" if step == "STEP2" else "step3_status"
     field_reason = "step2_rejection_reason" if step == "STEP2" else "step3_rejection_reason"
 
@@ -86,6 +89,11 @@ def decide_step(submission, *, step, decision, reason, admin_user):
 
     customer = submission.customer
     new_status = _recompute_customer_status(customer, submission)
+
+    if step == "STEP2" and decision == "APPROVED":
+        from payments.services import record_kyc_instalment
+
+        record_kyc_instalment(submission, receipt_entries=receipt_entries)
 
     if new_status == Customer.KYCStatus.APPROVED:
         notify_customer(customer, "KYC_APPROVED", "Your KYC is approved", "Your account is now fully unlocked.", deep_link="home")

@@ -48,3 +48,32 @@ export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSel
   </select>
 ))
 Select.displayName = 'Select'
+
+export function FileInput({
+  file,
+  onChange,
+  accept,
+}: {
+  file: File | null
+  onChange: (file: File | null) => void
+  accept?: string
+}) {
+  return (
+    <span className={clsx(baseFieldClass, 'flex cursor-pointer items-center gap-3')}>
+      <span className="shrink-0 rounded-md border border-ink-200 bg-ink-50 px-2.5 py-1 text-xs font-medium text-ink-700">
+        Choose file
+      </span>
+      <span className={clsx('truncate', file ? 'text-ink-800' : 'text-ink-300')}>{file ? file.name : 'No file selected'}</span>
+      <input
+        type="file"
+        accept={accept}
+        className="sr-only"
+        onChange={(e) => {
+          onChange(e.target.files?.[0] ?? null)
+          // Reset so picking the same file again still fires onChange
+          e.target.value = ''
+        }}
+      />
+    </span>
+  )
+}

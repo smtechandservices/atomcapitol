@@ -2,7 +2,7 @@
 
 import { useState, type ReactNode } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, CheckCircle2, XCircle } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, Download, FileText, XCircle } from 'lucide-react'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Card, CardHeader, CardBody } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -13,7 +13,9 @@ import { ErrorState } from '@/components/ui/EmptyState'
 import { useToast } from '@/components/ui/Toast'
 import { apiErrorMessage } from '@/lib/api'
 import { absoluteMediaUrl, formatCurrency, formatDate, formatDateTime } from '@/lib/format'
-import { useDecideKyc, useKycSubmission } from './api'
+import { downloadMedia } from '@/lib/download'
+import { useDecideKyc, useKycSubmission, type ReceiptEntry } from './api'
+import { ReceiptEntriesModal } from './ReceiptEntriesModal'
 
 export function KycReviewPage() {
   const { id } = useParams<{ id: string }>()
@@ -24,6 +26,7 @@ export function KycReviewPage() {
 
   const [step2Reason, setStep2Reason] = useState('')
   const [step3Reason, setStep3Reason] = useState('')
+  const [receiptOpen, setReceiptOpen] = useState(false)
 
   if (isLoading) return <FullPageSpinner />
   if (error || !submission) return <ErrorState message={apiErrorMessage(error, 'Submission not found')} />
@@ -33,6 +36,16 @@ export function KycReviewPage() {
       await decide.mutateAsync({ step2_decision: decision, step2_reason: decision === 'REJECTED' ? step2Reason : undefined })
       toast.success(`Step 2 ${decision.toLowerCase()}`)
       setStep2Reason('')
+    } catch (err) {
+      toast.error(apiErrorMessage(err))
+    }
+  }
+
+  const approveWithReceipt = async (entries: ReceiptEntry[]) => {
+    try {
+      await decide.mutateAsync({ step2_decision: 'APPROVED', receipt_entries: entries })
+      toast.success('Step 2 approved, payment receipt generated')
+      setReceiptOpen(false)
     } catch (err) {
       toast.error(apiErrorMessage(err))
     }
@@ -98,6 +111,27 @@ export function KycReviewPage() {
                 View uploaded receipt
               </a>
             )}
+            {submission.first_payment_receipt && (
+              <a
+                href={absoluteMediaUrl(submission.first_payment_receipt) ?? undefined}
+                target="_blank"
+                rel="noreferrer"
+                className="ml-2 inline-flex items-center gap-1.5 rounded-lg border border-ink-100 px-3 py-2 text-sm text-ink-700 hover:bg-ink-50"
+              >
+                <FileText className="size-4" /> View generated receipt
+              </a>
+            )}
+            {submission.first_payment_receipt && (
+              <Button
+                variant="outline"
+                className="ml-2"
+                onClick={() =>
+                  downloadMedia(submission.first_payment_receipt!, `receipt-${submission.plot?.plot_number ?? submission.id}-instalment-1.pdf`)
+                }
+              >
+                <Download className="size-4" /> Download PDF
+              </Button>
+            )}
             {submission.step2_rejection_reason && (
               <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">Last rejection reason: {submission.step2_rejection_reason}</p>
             )}
@@ -106,9 +140,12 @@ export function KycReviewPage() {
                 <FieldWrap label="Rejection reason" hint="Only needed if rejecting">
                   <Textarea rows={2} value={step2Reason} onChange={(e) => setStep2Reason(e.target.value)} />
                 </FieldWrap>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button variant="secondary" loading={decide.isPending} onClick={() => decideStep2('APPROVED')}>
                     <CheckCircle2 className="size-4" /> Approve Step 2
+                  </Button>
+                  <Button variant="outline" disabled={decide.isPending} onClick={() => setReceiptOpen(true)}>
+                    <FileText className="size-4" /> Approve &amp; generate receipt
                   </Button>
                   <Button variant="danger" loading={decide.isPending} onClick={() => decideStep2('REJECTED')} disabled={!step2Reason}>
                     <XCircle className="size-4" /> Reject Step 2
@@ -157,6 +194,15 @@ export function KycReviewPage() {
           </CardBody>
         </Card>
       </div>
+
+      <ReceiptEntriesModal
+        open={receiptOpen}
+        onClose={() => setReceiptOpen(false)}
+        onSubmit={approveWithReceipt}
+        loading={decide.isPending}
+        initialAmount={submission.receipt_amount}
+        initialDate={submission.receipt_payment_date}
+      />
 
       {submission.decisions.length > 0 && (
         <Card className="mt-5">

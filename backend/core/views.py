@@ -1,3 +1,4 @@
+from django.http import HttpResponse
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import generics, permissions
 from rest_framework.filters import OrderingFilter, SearchFilter
@@ -36,6 +37,19 @@ class AdminSiteSettingsView(generics.RetrieveUpdateAPIView):
 
     def get_object(self):
         return SiteSettings.load()
+
+
+class AdminReceiptTermsPdfView(APIView):
+    """The saved receipt T&C rendered as a PDF on the company letterhead, as a download."""
+
+    permission_classes = [role_required("SUPER_ADMIN", "ACCOUNTS")]
+
+    def get(self, request):
+        from documents.services import render_terms_pdf
+
+        response = HttpResponse(render_terms_pdf(SiteSettings.load().receipt_terms), content_type="application/pdf")
+        response["Content-Disposition"] = 'attachment; filename="terms-and-conditions.pdf"'
+        return response
 
 
 class AuditLogListView(generics.ListAPIView):

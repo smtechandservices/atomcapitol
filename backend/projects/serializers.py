@@ -68,6 +68,9 @@ class PlotSerializer(serializers.ModelSerializer):
             "plot_number",
             "size",
             "block_sector",
+            "rate_per_sq_yd",
+            "plc_percent",
+            "plc_type",
             "price",
             "status",
             "booking_date",
@@ -78,6 +81,24 @@ class PlotSerializer(serializers.ModelSerializer):
             "buyers",
             "created_at",
         ]
+
+        read_only_fields = ["price"]
+        extra_kwargs = {
+            "rate_per_sq_yd": {"min_value": 0},
+            "plc_percent": {"min_value": 0, "max_value": 100},
+            "instalment_count": {"min_value": 2},
+        }
+
+    def validate(self, attrs):
+        if self.partial and "size" not in attrs and "rate_per_sq_yd" not in attrs:
+            return attrs
+        size = attrs.get("size", getattr(self.instance, "size", None))
+        rate = attrs.get("rate_per_sq_yd", getattr(self.instance, "rate_per_sq_yd", None))
+        if rate is None:
+            raise serializers.ValidationError({"rate_per_sq_yd": "Price per sq. yd is required."})
+        if Plot.parse_area(size) is None:
+            raise serializers.ValidationError({"size": "Enter the plot size in sq. yd as a positive number."})
+        return attrs
 
     def get_buyers(self, obj):
         return PlotBuyerSerializer(obj.customers.all(), many=True).data
@@ -90,7 +111,8 @@ class PlotAssignSerializer(serializers.Serializer):
     phone = serializers.CharField(required=False, allow_blank=True, default="")
     total_value = serializers.DecimalField(max_digits=14, decimal_places=2, required=False)
     amount_paid_outside_app = serializers.DecimalField(max_digits=14, decimal_places=2, required=False, default=0)
-    instalment_count = serializers.IntegerField(required=False, min_value=1)
+    # Includes instalment 1, which is the booking payment receipt submitted during KYC.
+    instalment_count = serializers.IntegerField(required=False, min_value=2)
 
     def get_commercial_position(self):
         data = self.validated_data

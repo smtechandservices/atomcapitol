@@ -46,6 +46,22 @@ class AuditLog(models.Model):
         )
 
 
+DEFAULT_RECEIPT_TERMS = """\
+1. The Customer/Allottee shall make the required payment(s) within 30 (Thirty) days from the date of booking of the allotted plot/property.
+2. The Customer acknowledges that the booking amount/token amount paid at the time of booking is non-refundable under all circumstances.
+3. In the event the Customer voluntarily cancels the booking for any reason whatsoever, including but not limited to financial constraints, change of plans, personal reasons, dissatisfaction, inability to make payments, or any other reason, the Company shall not be liable to refund any amount received against the booked plot/property.
+4. Failure to clear the outstanding amount within the stipulated period of 30 days shall constitute a payment default under the terms of allotment. In the event of such default, the Company shall be entitled to levy interest @ 1% (One Percent) per month on the outstanding balance amount from the expiry of the 30-day payment period until the date of actual realization of the dues.
+5. The Company reserves the sole and absolute right to recover the outstanding principal amount along with accrued interest and any other applicable charges.
+6. No Registry, Sale Deed, Conveyance Deed, Possession, NOC, Transfer, or any ownership-related document shall be issued or executed unless: (a) the entire sale consideration has been paid; and (b) all delayed payment interest and other outstanding charges have been fully cleared.
+7. Continued non-payment may result in cancellation of the allotment in accordance with the Company's prevailing terms and conditions, without prejudice to any other legal rights available to the Company.
+8. The Customer acknowledges and accepts that the Company's records regarding outstanding dues and interest calculations shall be final and binding.
+9. After registry of plot this receipt will be null or void.
+10. The company confirms that no scheme, ROI, buy-back offer, or related assurance was provided to the customer at the time of booking, nor was any such request made by the customer.
+11. Registry charges & Legal Fees are additional and will be payable as per the prevailing government guidelines at the time of registration.
+12. Subject to Ahmedabad / Bhavnagar Jurisdiction.
+"""
+
+
 class SiteSettings(models.Model):
     """Singleton row of global settings shown to customers / used by the app."""
 
@@ -60,6 +76,7 @@ class SiteSettings(models.Model):
     receipt_template_note = models.TextField(
         blank=True, help_text="Free text footer/terms printed on auto-generated receipts."
     )
+    receipt_terms = models.TextField(blank=True, default=DEFAULT_RECEIPT_TERMS, help_text="Printed as the last page of payment receipts")
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

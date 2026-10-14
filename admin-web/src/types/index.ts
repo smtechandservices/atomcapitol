@@ -100,6 +100,9 @@ export interface Plot {
   plot_number: string
   size: string
   block_sector: string
+  rate_per_sq_yd: string | null
+  plc_percent: string
+  plc_type: string
   price: string
   status: PlotStatus
   booking_date: string | null
@@ -229,6 +232,7 @@ export interface KycQueueDetail {
   step3_status: KYCStepStatus | null
   step3_rejection_reason: string
   step3_submitted_at: string | null
+  first_payment_receipt: string | null
   decisions: KYCDecisionLogEntry[]
 }
 
@@ -248,6 +252,7 @@ export interface Milestone {
   payment_mode: string
   transaction_reference: string
   admin_remarks: string
+  receipt: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -399,6 +404,7 @@ export interface CompanySettings {
   bank_name: string
   upi_id: string
   receipt_template_note: string
+  receipt_terms: string
   updated_at?: string
 }
 

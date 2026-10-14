@@ -32,6 +32,7 @@ class SiteSettingsSerializer(serializers.ModelSerializer):
             "bank_name",
             "upi_id",
             "receipt_template_note",
+            "receipt_terms",
             "updated_at",
         ]
         read_only_fields = ["updated_at"]

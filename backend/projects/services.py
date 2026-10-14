@@ -55,7 +55,7 @@ def assign_plot(plot, email, *, role="PRIMARY", name="", phone="", commercial_po
         plot=plot, action=PlotAssignmentHistory.Action.ASSIGNED, to_email=email, performed_by=performed_by
     )
 
-    if role == "PRIMARY" and plot.total_value and plot.instalment_count and not plot.milestones.exists():
+    if role == "PRIMARY" and plot.total_value and plot.instalment_count and not plot.milestones.filter(sequence__gte=2).exists():
         from payments.services import generate_milestone_schedule
 
         generate_milestone_schedule(plot)
@@ -99,25 +99,45 @@ def transfer_plot(plot, current_customer, new_email, *, reason="", performed_by=
 
 
 def bulk_import_plots_csv(project, file_obj):
-    """Columns: plot_number,size,block_sector,price"""
-    decoded = io.TextIOWrapper(file_obj.file, encoding="utf-8")
+    """Columns: plot_number,size,block_sector,rate_per_sq_yd,plc_percent,plc_type"""
+    decoded = io.TextIOWrapper(file_obj.file, encoding="utf-8-sig")
     reader = csv.DictReader(decoded)
     created, errors = [], []
     for i, row in enumerate(reader, start=2):
         try:
+            size = (row.get("size") or "").strip()
+            if Plot.parse_area(size) is None:
+                raise ValueError("size must be a positive number (sq. yd)")
+            rate = Decimal((row.get("rate_per_sq_yd") or "").strip())
+            plc_percent = Decimal((row.get("plc_percent") or "").strip() or 0)
+            if rate < 0 or not 0 <= plc_percent <= 100:
+                raise ValueError("rate_per_sq_yd must be >= 0 and plc_percent between 0 and 100")
             plot, _ = Plot.objects.update_or_create(
                 project=project,
                 plot_number=row["plot_number"].strip(),
                 defaults={
-                    "size": row.get("size", "").strip(),
-                    "block_sector": row.get("block_sector", "").strip(),
-                    "price": row["price"],
+                    "size": size,
+                    "block_sector": (row.get("block_sector") or "").strip(),
+                    "rate_per_sq_yd": rate,
+                    "plc_percent": plc_percent,
+                    "plc_type": (row.get("plc_type") or "").strip(),
                 },
             )
             created.append(plot.plot_number)
-        except (KeyError, ValidationError) as exc:
+        except InvalidOperation:
+            errors.append({"row": i, "error": "rate_per_sq_yd and plc_percent must be numbers"})
+        except (KeyError, ValueError, ValidationError) as exc:
             errors.append({"row": i, "error": str(exc)})
     return created, errors
+
+
+def _instalment_count(value):
+    if not value:
+        return None
+    count = int(value)
+    if count < 2:
+        raise ValueError("instalment_count must be at least 2 (instalment 1 is the KYC receipt)")
+    return count
 
 
 def bulk_assign_csv(file_obj, performed_by=None):
@@ -133,7 +153,7 @@ def bulk_assign_csv(file_obj, performed_by=None):
                 commercial_position = {
                     "total_value": Decimal(row["total_value"]),
                     "amount_paid_outside_app": Decimal(row.get("amount_paid_outside_app") or 0),
-                    "instalment_count": int(row["instalment_count"]) if row.get("instalment_count") else None,
+                    "instalment_count": _instalment_count(row.get("instalment_count")),
                 }
             assign_plot(
                 plot,

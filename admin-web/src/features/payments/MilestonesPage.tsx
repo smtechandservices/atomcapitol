@@ -10,6 +10,7 @@ import { Input, Select, FieldWrap, Textarea } from '@/components/ui/Field'
 import { Modal } from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/Badge'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
+import { FileActions } from '@/components/ui/FileActions'
 import { useToast } from '@/components/ui/Toast'
 import { apiErrorMessage } from '@/lib/api'
 import { formatCurrency, formatDate } from '@/lib/format'
@@ -42,6 +43,20 @@ export function MilestonesPage() {
     { key: 'amount', header: 'Amount', render: (m) => formatCurrency(m.amount) },
     { key: 'due', header: 'Due date', render: (m) => formatDate(m.due_date) },
     { key: 'status', header: 'Status', render: (m) => <Badge>{m.status}</Badge> },
+    {
+      key: 'receipt',
+      header: 'Receipt',
+      render: (m) =>
+        m.receipt ? (
+          <FileActions
+            path={m.receipt}
+            label="receipt"
+            filename={`receipt-${selectedPlot?.plot_number ?? m.plot}-instalment-${m.sequence}.pdf`}
+          />
+        ) : (
+          <span className="text-ink-300">—</span>
+        ),
+    },
     {
       key: 'actions',
       header: '',

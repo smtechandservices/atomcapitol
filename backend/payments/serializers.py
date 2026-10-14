@@ -125,6 +125,8 @@ class ChangeRequestCounterSerializer(serializers.Serializer):
 # Admin — 7.9/7.10 Milestones + Payment Verification Queue
 # ---------------------------------------------------------------------------
 class AdminMilestoneSerializer(serializers.ModelSerializer):
+    receipt = serializers.SerializerMethodField()
+
     class Meta:
         model = Milestone
         fields = [
@@ -140,8 +142,19 @@ class AdminMilestoneSerializer(serializers.ModelSerializer):
             "payment_mode",
             "transaction_reference",
             "admin_remarks",
+            "receipt",
         ]
         read_only_fields = ["id"]
+
+    def get_receipt(self, obj):
+        """URL of the latest generated payment receipt PDF for this instalment, if any."""
+        receipts = getattr(obj, "receipts", None)
+        if receipts is None:
+            from documents.models import Document
+
+            receipts = obj.documents.filter(doc_type=Document.DocType.PAYMENT_RECEIPT).exclude(file="").order_by("-created_at")
+        doc = next(iter(receipts), None)
+        return doc.file.url if doc else None
 
 
 class PaymentVerificationQueueSerializer(serializers.ModelSerializer):

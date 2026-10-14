@@ -35,7 +35,9 @@ export interface PlotFormValues {
   plot_number: string
   size: string
   block_sector?: string
-  price: string
+  rate_per_sq_yd: string
+  plc_percent: string
+  plc_type?: string
 }
 
 export function useCreatePlot() {
@@ -123,6 +125,11 @@ export function useGenerateSchedule(plotId: number) {
   })
 }
 
+export interface BulkRowError {
+  row: number
+  error: string
+}
+
 export function useBulkImportPlots() {
   const qc = useQueryClient()
   return useMutation({
@@ -130,7 +137,7 @@ export function useBulkImportPlots() {
       const form = new FormData()
       form.append('project', String(project))
       form.append('file', file)
-      const { data } = await api.post<{ created: number; errors: string[] }>('/admin/plots/bulk-import/', form, {
+      const { data } = await api.post<{ created: string[]; errors: BulkRowError[] }>('/admin/plots/bulk-import/', form, {
         headers: { 'Content-Type': 'multipart/form-data' },
       })
       return data
@@ -145,7 +152,7 @@ export function useBulkAssignPlots() {
     mutationFn: async (file: File) => {
       const form = new FormData()
       form.append('file', file)
-      const { data } = await api.post<{ assigned: number; errors: string[] }>('/admin/plots/bulk-assign/', form, {
+      const { data } = await api.post<{ assigned: string[]; errors: BulkRowError[] }>('/admin/plots/bulk-assign/', form, {
         headers: { 'Content-Type': 'multipart/form-data' },
       })
       return data

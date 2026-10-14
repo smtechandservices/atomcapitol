@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from rest_framework import serializers
 
 from projects.serializers import CustomerPlotDetailSerializer
@@ -83,6 +85,7 @@ class KYCQueueDetailSerializer(serializers.ModelSerializer):
     customer_email = serializers.CharField(source="customer.email", read_only=True)
     customer_name = serializers.CharField(source="customer.name", read_only=True)
     plot = serializers.SerializerMethodField()
+    first_payment_receipt = serializers.SerializerMethodField()
     decisions = KYCDecisionLogSerializer(many=True, read_only=True)
 
     class Meta:
@@ -105,8 +108,26 @@ class KYCQueueDetailSerializer(serializers.ModelSerializer):
             "step3_status",
             "step3_rejection_reason",
             "step3_submitted_at",
+            "first_payment_receipt",
             "decisions",
         ]
+
+    def get_first_payment_receipt(self, obj):
+        """Receipt PDF issued for instalment 1 when Step 2 was approved with "generate receipt"."""
+        from documents.models import Document
+
+        doc = (
+            Document.objects.filter(
+                customer=obj.customer,
+                doc_type=Document.DocType.PAYMENT_RECEIPT,
+                milestone__sequence=1,
+                milestone__plot=obj.customer.assigned_plot_id,
+            )
+            .exclude(file="")
+            .order_by("-created_at")
+            .first()
+        )
+        return doc.file.url if doc else None
 
     def get_plot(self, obj):
         plot = obj.customer.assigned_plot
@@ -115,8 +136,18 @@ class KYCQueueDetailSerializer(serializers.ModelSerializer):
         return CustomerPlotDetailSerializer(plot).data
 
 
+class ReceiptEntrySerializer(serializers.Serializer):
+    payment_by = serializers.CharField(max_length=50)
+    payment_date = serializers.DateField()
+    bank = serializers.CharField(max_length=100, required=False, allow_blank=True, default="")
+    reference = serializers.CharField(max_length=100, required=False, allow_blank=True, default="")
+    amount = serializers.DecimalField(max_digits=14, decimal_places=2, min_value=Decimal("0.01"))
+
+
 class KYCDecisionSerializer(serializers.Serializer):
     step2_decision = serializers.ChoiceField(choices=["APPROVED", "REJECTED"], required=False)
+    # "Approve & generate receipt": the payments behind the first receipt, as verified by the admin.
+    receipt_entries = ReceiptEntrySerializer(many=True, required=False)
     step2_reason = serializers.CharField(required=False, allow_blank=True, default="")
     step3_decision = serializers.ChoiceField(choices=["APPROVED", "REJECTED"], required=False)
     step3_reason = serializers.CharField(required=False, allow_blank=True, default="")
@@ -124,4 +155,9 @@ class KYCDecisionSerializer(serializers.Serializer):
     def validate(self, attrs):
         if "step2_decision" not in attrs and "step3_decision" not in attrs:
             raise serializers.ValidationError("Provide at least one of step2_decision / step3_decision.")
+        if "receipt_entries" in attrs:
+            if attrs.get("step2_decision") != "APPROVED":
+                raise serializers.ValidationError({"receipt_entries": "Only allowed when approving Step 2."})
+            if not attrs["receipt_entries"]:
+                raise serializers.ValidationError({"receipt_entries": "Add at least one payment."})
         return attrs

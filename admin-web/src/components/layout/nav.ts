@@ -15,6 +15,7 @@ import {
   UserSquare2,
   UserCog,
   ScrollText,
+  FileText,
   Settings as SettingsIcon,
   type LucideIcon,
 } from 'lucide-react'
@@ -85,6 +86,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { to: '/sales-team', label: 'Sales Team', icon: UserSquare2, roles: ['SUPER_ADMIN', 'ACCOUNTS'] },
       { to: '/admin-users', label: 'Admin Users & Roles', icon: UserCog, roles: ['SUPER_ADMIN'] },
       { to: '/audit-log', label: 'Audit Log', icon: ScrollText },
+      { to: '/terms', label: 'Terms & Conditions', icon: FileText, roles: ['SUPER_ADMIN', 'ACCOUNTS'] },
       { to: '/settings', label: 'Settings', icon: SettingsIcon, roles: ['SUPER_ADMIN', 'ACCOUNTS'] },
     ],
   },

@@ -86,6 +86,8 @@ export function PlotDrawer({ plot, onClose }: { plot: Plot; onClose: () => void 
           <Info label="Status" value={<Badge>{plot.status}</Badge>} />
           <Info label="Size" value={plot.size} />
           <Info label="Block / Sector" value={plot.block_sector || '—'} />
+          <Info label="Price / sq. yd" value={formatCurrency(plot.rate_per_sq_yd)} />
+          <Info label="PLC" value={Number(plot.plc_percent) ? `${Number(plot.plc_percent)}%${plot.plc_type ? ` (${plot.plc_type})` : ''}` : '—'} />
           <Info label="List price" value={formatCurrency(plot.price)} />
           <Info label="Total value" value={formatCurrency(plot.total_value)} />
           <Info label="Paid outside app" value={formatCurrency(plot.amount_paid_outside_app)} />
@@ -183,9 +185,10 @@ export function PlotDrawer({ plot, onClose }: { plot: Plot; onClose: () => void 
                     onChange={(e) => setAssignForm({ ...assignForm, amount_paid_outside_app: e.target.value })}
                   />
                 </FieldWrap>
-                <FieldWrap label="Instalments">
+                <FieldWrap label="Instalments" hint="Min 2. Instalment 1 is the KYC booking receipt">
                   <Input
                     type="number"
+                    min={2}
                     value={assignForm.instalment_count ?? ''}
                     onChange={(e) => setAssignForm({ ...assignForm, instalment_count: Number(e.target.value) })}
                   />

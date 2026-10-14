@@ -57,6 +57,7 @@ function SettingsForm({ initial }: { initial: CompanySettings }) {
             <FieldWrap label="Receipt template note" hint="Free-text footer printed on auto-generated receipts">
               <Textarea rows={3} value={form.receipt_template_note} onChange={(e) => setForm({ ...form, receipt_template_note: e.target.value })} />
             </FieldWrap>
+
           </CardBody>
         </Card>
 

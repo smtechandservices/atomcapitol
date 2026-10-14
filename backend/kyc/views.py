@@ -126,7 +126,12 @@ class KYCDecideView(APIView):
 
         if "step2_decision" in data:
             services.decide_step(
-                submission, step="STEP2", decision=data["step2_decision"], reason=data.get("step2_reason", ""), admin_user=request.user
+                submission,
+                step="STEP2",
+                decision=data["step2_decision"],
+                reason=data.get("step2_reason", ""),
+                admin_user=request.user,
+                receipt_entries=data.get("receipt_entries"),
             )
         if "step3_decision" in data:
             services.decide_step(

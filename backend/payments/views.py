@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from django.db.models import Sum
+from django.db.models import Prefetch, Sum
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import generics, status, viewsets
@@ -11,6 +11,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core.permissions import IsKYCApproved, role_required
+from documents.models import Document
 from projects.models import Plot
 
 from . import services
@@ -122,7 +123,13 @@ class CustomerChangeRequestListCreateView(generics.ListCreateAPIView):
 # Admin — 7.9 Payments & Milestones (per-plot schedule editing)
 # ---------------------------------------------------------------------------
 class AdminMilestoneViewSet(viewsets.ModelViewSet):
-    queryset = Milestone.objects.select_related("plot").all()
+    queryset = Milestone.objects.select_related("plot").prefetch_related(
+        Prefetch(
+            "documents",
+            queryset=Document.objects.filter(doc_type=Document.DocType.PAYMENT_RECEIPT).exclude(file="").order_by("-created_at"),
+            to_attr="receipts",
+        )
+    )
     serializer_class = AdminMilestoneSerializer
     permission_classes = [role_required("SUPER_ADMIN", "ACCOUNTS")]
     filter_backends = [DjangoFilterBackend, OrderingFilter]
@@ -137,7 +144,7 @@ class GenerateMilestoneScheduleView(APIView):
         plot = Plot.objects.filter(pk=plot_id).first()
         if not plot:
             raise NotFound("Plot not found.")
-        if plot.milestones.exists():
+        if plot.milestones.filter(sequence__gte=2).exists():
             return Response(
                 {"detail": "Milestones already exist for this plot. Edit them individually instead.", "errors": {}},
                 status=status.HTTP_400_BAD_REQUEST,

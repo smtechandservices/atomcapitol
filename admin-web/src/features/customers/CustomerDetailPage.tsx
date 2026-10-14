@@ -17,6 +17,7 @@ import { formatCurrency, formatDate, formatDateTime } from '@/lib/format'
 import { useCustomer, useUpdateCustomer } from './api'
 import { useMilestones } from '@/features/payments/api'
 import { useDocuments } from '@/features/documents/api'
+import { FileActions } from '@/components/ui/FileActions'
 import { useTickets } from '@/features/tickets/api'
 import { useAllSalesPeople, useSalesPerson } from '@/features/sales/api'
 
@@ -179,7 +180,10 @@ export function CustomerDetailPage() {
                         <p className="font-medium text-ink-700">{d.name}</p>
                         <p className="text-xs text-ink-400">{d.doc_type.replaceAll('_', ' ')}</p>
                       </div>
-                      <Badge tone={d.status === 'ISSUED' ? 'success' : 'warning'}>{d.status}</Badge>
+                      <div className="flex items-center gap-3">
+                        <Badge tone={d.status === 'ISSUED' ? 'success' : 'warning'}>{d.status}</Badge>
+                        {d.file && <FileActions path={d.file} label={d.name} />}
+                      </div>
                     </li>
                   ))}
                 </ul>
