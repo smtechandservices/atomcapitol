@@ -199,10 +199,24 @@ function ReviewScreen({ id }: { id: string }) {
 
       {/* Step 2 — receipt */}
       <Card>
-        <CardHeader title="Step 2 · Plot confirmation & first receipt" subtitle={s.step2_submitted_at ? `Submitted ${formatDateTime(s.step2_submitted_at)}` : undefined} />
+        <CardHeader title="Step 2 · Plot confirmation, first receipt & ID" subtitle={s.step2_submitted_at ? `Submitted ${formatDateTime(s.step2_submitted_at)}` : undefined} />
         <div className="grid grid-cols-1 lg:grid-cols-5">
-          <div className="border-b border-ink-100 p-5 lg:col-span-3 lg:border-b-0 lg:border-r">
+          <div className="space-y-5 border-b border-ink-100 p-5 lg:col-span-3 lg:border-b-0 lg:border-r">
             <FilePreview title="Payment receipt" url={absoluteMediaUrl(s.receipt_file)} emptyText="No receipt uploaded yet" />
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              {(
+                [
+                  ['Aadhaar (front)', s.aadhaar_front],
+                  ['Aadhaar (back)', s.aadhaar_back],
+                  ['PAN card', s.pan_card],
+                ] as const
+              ).map(([label, file]) => (
+                <div key={label} className="space-y-1.5">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-ink-400">{label}</p>
+                  <FilePreview title={label} url={absoluteMediaUrl(file)} emptyText="Not uploaded" height={260} />
+                </div>
+              ))}
+            </div>
           </div>
           <div className="space-y-5 p-5 lg:col-span-2">
             <dl className="grid grid-cols-2 gap-4 text-sm">

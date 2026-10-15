@@ -248,6 +248,10 @@ export interface KycQueueDetail {
   receipt_file: string | null
   receipt_amount: string | null
   receipt_payment_date: string | null
+  /** ID documents uploaded with the Step 2 receipt; null on submissions made before they were required. */
+  aadhaar_front: string | null
+  aadhaar_back: string | null
+  pan_card: string | null
   step2_status: KYCStepStatus | null
   step2_rejection_reason: string
   step2_submitted_at: string | null

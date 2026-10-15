@@ -28,12 +28,27 @@ def get_or_create_submission(customer):
     return submission
 
 
-def submit_step2(customer, *, plot_confirmed, plot_mismatch_note, receipt_file, receipt_amount, receipt_payment_date):
+def submit_step2(
+    customer,
+    *,
+    plot_confirmed,
+    plot_mismatch_note,
+    receipt_file,
+    receipt_amount,
+    receipt_payment_date,
+    aadhaar_front=None,
+    aadhaar_back=None,
+    pan_card=None,
+):
+    """ID files left as None keep whatever is already on record (resubmission after a rejection)."""
     submission = get_or_create_submission(customer)
     submission.plot_confirmed = plot_confirmed
     submission.plot_mismatch_note = plot_mismatch_note
     if receipt_file is not None:
         submission.receipt_file = receipt_file
+    for field, file in (("aadhaar_front", aadhaar_front), ("aadhaar_back", aadhaar_back), ("pan_card", pan_card)):
+        if file is not None:
+            setattr(submission, field, file)
     submission.receipt_amount = receipt_amount
     submission.receipt_payment_date = receipt_payment_date
     submission.step2_status = StepStatus.PENDING

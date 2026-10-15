@@ -20,6 +20,10 @@ def validate_receipt_file(file):
     _validate(file, DOCUMENT_TYPES, "Receipt file")
 
 
+def validate_identity_file(file):
+    _validate(file, DOCUMENT_TYPES, "ID document")
+
+
 def validate_payment_proof_file(file):
     _validate(file, DOCUMENT_TYPES, "Payment proof")
 

@@ -2,6 +2,7 @@ from decimal import Decimal
 
 from rest_framework import serializers
 
+from core.validators import validate_identity_file
 from projects.serializers import CustomerPlotDetailSerializer
 
 from .models import KYCDecisionLog, KYCSubmission
@@ -22,6 +23,21 @@ class KYCStep2Serializer(serializers.Serializer):
     receipt_file = serializers.FileField()
     receipt_amount = serializers.DecimalField(max_digits=14, decimal_places=2)
     receipt_payment_date = serializers.DateField()
+    aadhaar_front = serializers.FileField(required=False, validators=[validate_identity_file])
+    aadhaar_back = serializers.FileField(required=False, validators=[validate_identity_file])
+    pan_card = serializers.FileField(required=False, validators=[validate_identity_file])
+
+    def validate(self, attrs):
+        # Required on the first submission; a resubmission after rejection may keep the files already on record.
+        submission = self.context.get("submission")
+        missing = {
+            field: "This file is required."
+            for field in ("aadhaar_front", "pan_card")
+            if not attrs.get(field) and not (submission and getattr(submission, field))
+        }
+        if missing:
+            raise serializers.ValidationError(missing)
+        return attrs
 
 
 class KYCStep3Serializer(serializers.Serializer):
@@ -39,6 +55,9 @@ class KYCStatusSerializer(serializers.ModelSerializer):
             "plot_mismatch_note",
             "receipt_amount",
             "receipt_payment_date",
+            "aadhaar_front",
+            "aadhaar_back",
+            "pan_card",
             "step2_status",
             "step2_rejection_reason",
             "step2_submitted_at",
@@ -122,6 +141,9 @@ class KYCQueueDetailSerializer(serializers.ModelSerializer):
             "receipt_file",
             "receipt_amount",
             "receipt_payment_date",
+            "aadhaar_front",
+            "aadhaar_back",
+            "pan_card",
             "step2_status",
             "step2_rejection_reason",
             "step2_submitted_at",

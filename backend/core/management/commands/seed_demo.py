@@ -211,6 +211,8 @@ class Command(BaseCommand):
             ),
             receipt_amount=Decimal("500000"),
             receipt_payment_date=date.today() - timedelta(days=30),
+            aadhaar_front=ContentFile(_png(f"Aadhaar (front) - {customer.name}", "#5a4632", (856, 540)), name=f"aadhaar-{customer.pk}.png"),
+            pan_card=ContentFile(_png(f"PAN card - {customer.name}", "#24476b", (856, 540)), name=f"pan-{customer.pk}.png"),
         )
         KYCSubmission.objects.filter(pk=sub.pk).update(step2_submitted_at=timezone.now() - timedelta(hours=hours_ago))
         return sub

@@ -41,13 +41,14 @@ class KYCPlotCheckView(APIView):
 
 
 class KYCStep2View(APIView):
-    """4.5 First Payment Receipt Upload (Step 2b), plus plot confirmation."""
+    """4.5 First Payment Receipt Upload (Step 2b), plus plot confirmation and Aadhaar / PAN images."""
 
     permission_classes = [IsCustomerUser]
     parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request):
-        serializer = KYCStep2Serializer(data=request.data)
+        existing = KYCSubmission.objects.filter(customer=request.user).first()
+        serializer = KYCStep2Serializer(data=request.data, context={"submission": existing})
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         submission = services.submit_step2(
@@ -57,6 +58,9 @@ class KYCStep2View(APIView):
             receipt_file=data["receipt_file"],
             receipt_amount=data["receipt_amount"],
             receipt_payment_date=data["receipt_payment_date"],
+            aadhaar_front=data.get("aadhaar_front"),
+            aadhaar_back=data.get("aadhaar_back"),
+            pan_card=data.get("pan_card"),
         )
         return Response(KYCStatusSerializer(submission).data, status=status.HTTP_201_CREATED)
 

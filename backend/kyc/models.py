@@ -1,7 +1,7 @@
 from django.db import models
 
 from core.models import TimeStampedModel
-from core.validators import validate_receipt_file, validate_video_file
+from core.validators import validate_identity_file, validate_receipt_file, validate_video_file
 
 
 class StepStatus(models.TextChoices):
@@ -23,6 +23,11 @@ class KYCSubmission(TimeStampedModel):
     receipt_file = models.FileField(upload_to="kyc/receipts/", null=True, blank=True, validators=[validate_receipt_file])
     receipt_amount = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
     receipt_payment_date = models.DateField(null=True, blank=True)
+    # Identity documents, uploaded with the receipt and reviewed as part of Step 2.
+    # aadhaar_back is optional: an e-Aadhaar PDF carries both sides in one file.
+    aadhaar_front = models.FileField(upload_to="kyc/identity/", null=True, blank=True, validators=[validate_identity_file])
+    aadhaar_back = models.FileField(upload_to="kyc/identity/", null=True, blank=True, validators=[validate_identity_file])
+    pan_card = models.FileField(upload_to="kyc/identity/", null=True, blank=True, validators=[validate_identity_file])
     step2_status = models.CharField(max_length=20, choices=StepStatus.choices, null=True, blank=True)
     step2_rejection_reason = models.TextField(blank=True)
     step2_submitted_at = models.DateTimeField(null=True, blank=True)

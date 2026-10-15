@@ -168,18 +168,20 @@ curl -s -X DELETE $BASE/admin/projects/$TEMP_PROJECT_ID/ -H "$AUTH" -w "HTTP:%{h
 
 ```bash
 curl -s -X POST $BASE/admin/plots/ -H "$AUTH" -H "Content-Type: application/json" -d "{
-  \"project\": $PROJECT_ID, \"plot_number\": \"A-101\", \"size\": \"1200 sq.ft\",
-  \"block_sector\": \"A\", \"price\": \"1500000\"
+  \"project\": $PROJECT_ID, \"plot_number\": \"A-101\", \"size\": \"150\",
+  \"block_sector\": \"A\", \"rate_per_sq_yd\": \"10000\", \"plc_percent\": \"0\"
 }" | tee /tmp/plot.json | jq .
+# size is sq. yd (a plain number); price is read-only = size x rate_per_sq_yd x (1 + plc_percent/100)
 PLOT_ID=$(jq -r .id /tmp/plot.json)
 
 curl -s "$BASE/admin/plots/?project=$PROJECT_ID&status=AVAILABLE" -H "$AUTH" | jq .
 curl -s $BASE/admin/plots/$PLOT_ID/ -H "$AUTH" | jq .
 curl -s -X PATCH $BASE/admin/plots/$PLOT_ID/ -H "$AUTH" -H "Content-Type: application/json" \
-  -d '{"size": "1250 sq.ft"}' | jq .
+  -d '{"plc_percent": "5", "plc_type": "Corner"}' | jq '{size, rate_per_sq_yd, plc_percent, price}'
 
 # assign the buyer — this is what lets the email log in to the app. With total_value +
-# instalment_count the monthly milestone plan is generated straight away.
+# instalment_count (min 2) the monthly plan for instalments 2..N is generated straight away;
+# instalment 1 is the KYC Step 2 receipt, added as PAID when Step 2 is approved.
 curl -s -X POST $BASE/admin/plots/$PLOT_ID/assign/ -H "$AUTH" -H "Content-Type: application/json" -d '{
   "email": "buyer@example.com", "role": "PRIMARY", "name": "Test Buyer", "phone": "9999999999",
   "total_value": "1500000", "amount_paid_outside_app": "100000", "instalment_count": 5
@@ -202,9 +204,9 @@ Bulk CSV import / assignment:
 
 ```bash
 cat > /tmp/plots.csv <<'EOF'
-plot_number,size,block_sector,price
-A-102,1000 sq.ft,A,1200000
-A-103,1500 sq.ft,B,1800000
+plot_number,size,block_sector,rate_per_sq_yd,plc_percent,plc_type
+A-102,120,A,10000,0,
+A-103,180,B,10000,5,Park facing
 EOF
 curl -s -X POST $BASE/admin/plots/bulk-import/ -H "$AUTH" \
   -F "project=$PROJECT_ID" -F "file=@/tmp/plots.csv;type=text/csv" | jq .
@@ -232,7 +234,8 @@ curl -s -X POST $BASE/admin/plots/$PLOT2_ID/unassign/ -H "$AUTH" -H "Content-Typ
   -d "{\"customer_id\": $NEWBUYER_ID, \"reason\": \"Booking cancelled\"}" | jq .
 
 # milestones only auto-generate when total_value + instalment_count were given at assignment.
-# Generate for a plot that has none yet (400 if it already has milestones or lacks those values):
+# Generate instalments 2..N for a plot that has none yet (400 if instalments >= 2 already exist or
+# those values are missing; an existing KYC instalment 1 doesn't block it):
 PLOT3_ID=$(curl -s "$BASE/admin/plots/?project=$PROJECT_ID&search=A-103" -H "$AUTH" | jq -r '.results[0].id')
 curl -s -X POST $BASE/admin/plots/$PLOT3_ID/assign/ -H "$AUTH" -H "Content-Type: application/json" \
   -d '{"email": "buyer3@example.com", "role": "PRIMARY", "name": "Third Buyer"}' | jq .
@@ -242,7 +245,7 @@ curl -s -X POST $BASE/admin/plots/$PLOT3_ID/generate-schedule/ -H "$AUTH" | jq .
 
 # delete (throwaway plot)
 TEMP_PLOT_ID=$(curl -s -X POST $BASE/admin/plots/ -H "$AUTH" -H "Content-Type: application/json" \
-  -d "{\"project\": $PROJECT_ID, \"plot_number\": \"TMP-1\", \"size\": \"900 sq.ft\", \"price\": \"900000\"}" | jq -r .id)
+  -d "{\"project\": $PROJECT_ID, \"plot_number\": \"TMP-1\", \"size\": \"100\", \"rate_per_sq_yd\": \"9000\"}" | jq -r .id)
 curl -s -X DELETE $BASE/admin/plots/$TEMP_PLOT_ID/ -H "$AUTH" -w "HTTP:%{http_code}\n"
 ```
 
@@ -286,14 +289,20 @@ These work before KYC approval (customer token only).
 # Step 2a: plot details to confirm
 curl -s $BASE/customer/kyc/plot-check/ -H "$CAUTH" | jq .
 
-# Step 2b: confirm the plot + upload the first payment receipt
+# Step 2b: confirm the plot + upload the first payment receipt + Aadhaar / PAN images.
+# aadhaar_front and pan_card are required on the first submission (aadhaar_back is optional);
+# on a resubmission any ID file left out keeps the one already on record.
 curl -s -X POST $BASE/customer/kyc/step2/ -H "$CAUTH" \
   -F "plot_confirmed=true" \
   -F "receipt_file=@/tmp/doc.pdf;type=application/pdf" \
   -F "receipt_amount=100000" \
-  -F "receipt_payment_date=2026-09-01" | jq .
+  -F "receipt_payment_date=2026-09-01" \
+  -F "aadhaar_front=@/tmp/photo.png;type=image/png" \
+  -F "aadhaar_back=@/tmp/photo.png;type=image/png" \
+  -F "pan_card=@/tmp/photo.png;type=image/png" | jq .
 
-# ...or flag a mismatch instead of confirming (also allowed as a resubmission)
+# ...or flag a mismatch instead of confirming (also allowed as a resubmission; the ID images
+# from the call above are kept, so they aren't re-sent here)
 curl -s -X POST $BASE/customer/kyc/step2/ -H "$CAUTH" \
   -F "plot_confirmed=false" \
   -F "plot_mismatch_note=Plot size on file looks wrong" \
@@ -335,10 +344,16 @@ curl -s -X POST $BASE/customer/kyc/step2/ -H "$CAUTH" \
   -F "plot_confirmed=true" -F "receipt_file=@/tmp/doc.pdf;type=application/pdf" \
   -F "receipt_amount=100000" -F "receipt_payment_date=2026-09-01" | jq '{step2_status, step3_status}'
 
-# ...then approve both -> unlocks the app for the customer
+# ...then approve both -> unlocks the app for the customer. Approving Step 2 records the receipt as
+# instalment 1 (PAID). Optional receipt_entries ("Approve & generate receipt") set that amount and
+# issue a receipt PDF; first_payment_receipt on the detail view then points at it.
 curl -s -X POST $BASE/admin/kyc-queue/$SUBMISSION_ID/decide/ -H "$AUTH" -H "Content-Type: application/json" -d '{
-  "step2_decision": "APPROVED", "step3_decision": "APPROVED"
+  "step2_decision": "APPROVED", "step3_decision": "APPROVED",
+  "receipt_entries": [
+    {"payment_by": "NEFT", "payment_date": "2026-09-01", "bank": "HDFC Bank", "reference": "UTR123", "amount": "100000"}
+  ]
 }' | jq '{step2_status, step3_status, kyc_status}'
+curl -s $BASE/admin/kyc-queue/$SUBMISSION_ID/ -H "$AUTH" | jq .first_payment_receipt
 ```
 
 ---
@@ -373,6 +388,7 @@ curl -s $BASE/customer/sales-contact/ -H "$CAUTH" -w "\nHTTP:%{http_code}\n"
 
 ```bash
 # totals, next due, milestone list (?status=UPCOMING|DUE|OVERDUE|UNDER_REVIEW|PAID)
+# instalment 1 is the KYC receipt (already PAID); the first payable one is sequence 2
 curl -s $BASE/customer/payments/ -H "$CAUTH" | tee /tmp/payments.json | jq .
 curl -s "$BASE/customer/payments/?status=DUE" -H "$CAUTH" | jq .
 
@@ -420,10 +436,15 @@ curl -s $BASE/admin/payment-verification-queue/stats/ -H "$AUTH" | jq .
 
 PROOF_ID=$(curl -s $BASE/admin/payment-verification-queue/ -H "$AUTH" | jq -r '.results[0].id')
 
-# approve (optionally correct amount/date; an amount below the milestone is refused)
+# approve — claimed amount matches the milestone, so no body is needed
 curl -s -X POST $BASE/admin/payment-verification-queue/$PROOF_ID/approve/ -H "$AUTH" -H "Content-Type: application/json" \
-  -d '{"corrected_date": "2026-10-04"}' | jq '{id, status, claimed_amount}'
+  -d '{}' | jq '{id, status, claimed_amount}'
 # -> milestone PAID, PDF receipt added to the customer's Documents + a notification
+#
+# If claimed_amount != milestone amount, the milestone is re-valued to the claimed amount and a
+# revised "schedule" for the remaining balance is required (replaces every unpaid milestone):
+#   -d '{"schedule": [{"name": "Instalment 3 of 5", "amount": "475000", "due_date": "2026-12-16"}, ...]}'
+# errors: schedule_required | schedule_total_mismatch (must match within ₹1) | overpaid_balance
 
 # the next instalment is now DUE: pay it, then reject that proof
 NEXT_ID=$(curl -s $BASE/customer/payments/ -H "$CAUTH" | jq -r '[.milestones[] | select(.status=="DUE" or .status=="OVERDUE")][0].id')
@@ -458,6 +479,10 @@ ADHOC_ID=$(curl -s -X POST $BASE/admin/milestones/ -H "$AUTH" -H "Content-Type: 
   \"plot\": $PLOT_ID, \"sequence\": 99, \"name\": \"Ad-hoc charge\", \"amount\": \"5000\", \"due_date\": \"2027-12-01\"
 }" | jq -r .id)
 curl -s -X DELETE $BASE/admin/milestones/$ADHOC_ID/ -H "$AUTH" -w "HTTP:%{http_code}\n"
+
+# re-issue the receipt PDF of a PAID milestone (previous receipt is hidden from the customer)
+# 400 not_paid | no_customer
+curl -s -X POST $BASE/admin/milestones/$MILESTONE_ID/regenerate-receipt/ -H "$AUTH" | jq '{id, status, receipt}'
 ```
 
 ---
@@ -780,8 +805,12 @@ curl -s -X PATCH $BASE/admin/settings/ -H "$AUTH" -H "Content-Type: application/
   "bank_ifsc": "HDFC0001234",
   "bank_name": "HDFC Bank",
   "upi_id": "atomcapitol@hdfcbank",
-  "receipt_template_note": "Thank you for your payment. This is a computer-generated receipt."
+  "receipt_template_note": "Thank you for your payment. This is a computer-generated receipt.",
+  "receipt_terms": "1. Payments are due within 30 days of booking.\n2. Subject to Ahmedabad jurisdiction."
 }' | jq .
+
+# receipt T&C rendered on the letterhead (last page of every receipt)
+curl -s $BASE/admin/settings/receipt-terms.pdf -H "$AUTH" -o /tmp/terms.pdf -w "HTTP:%{http_code}\n"
 
 # audit log — kept for 7 days
 # filters: action, action__startswith, target_type, actor, created_at__date__gte/lte, search
