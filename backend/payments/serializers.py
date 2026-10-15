@@ -224,8 +224,8 @@ class PaymentVerificationQueueSerializer(serializers.ModelSerializer):
 
 
 class ApprovePaymentProofSerializer(serializers.Serializer):
-    corrected_amount = serializers.DecimalField(max_digits=14, decimal_places=2, required=False)
-    corrected_date = serializers.DateField(required=False)
+    # Revised unpaid schedule — required when the claimed amount doesn't match the milestone.
+    schedule = ScheduleItemSerializer(many=True, required=False)
 
 
 class RejectPaymentProofSerializer(serializers.Serializer):

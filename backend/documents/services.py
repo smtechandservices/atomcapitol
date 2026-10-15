@@ -217,14 +217,16 @@ def _proof_entries(milestone, proof, amount):
     ]
 
 
-def generate_receipt_document(milestone, proof, amount, entries=None):
-    """`entries` lists each payment that makes up the receipt; defaults to the single proof."""
+def generate_receipt_document(milestone, proof, amount, entries=None, *, customer=None):
+    """`entries` lists each payment that makes up the receipt; defaults to the single proof.
+    `customer` defaults to whoever submitted the proof (needed when there is no proof)."""
+    customer = customer or proof.submitted_by
     entries = entries or _proof_entries(milestone, proof, amount)
-    pdf_bytes = render_payment_receipt_pdf(milestone.plot, proof.submitted_by, entries)
+    pdf_bytes = render_payment_receipt_pdf(milestone.plot, customer, entries)
     filename = f"receipt_{milestone.plot.plot_number}_{milestone.sequence}.pdf"
 
     document = Document.objects.create(
-        customer=proof.submitted_by,
+        customer=customer,
         project=milestone.plot.project,
         milestone=milestone,
         name=f"Receipt - {milestone.name}",
@@ -234,7 +236,7 @@ def generate_receipt_document(milestone, proof, amount, entries=None):
     document.file.save(filename, ContentFile(pdf_bytes), save=True)
 
     notify_customer(
-        proof.submitted_by,
+        customer,
         "RECEIPT_ISSUED",
         "Receipt available",
         f"Your receipt for '{milestone.name}' is now available in Documents.",

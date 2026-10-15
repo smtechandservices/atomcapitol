@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from dateutil.relativedelta import relativedelta
 from django.db import transaction
+from django.db.models import Sum
 from django.utils import timezone
 
 from core.models import AuditLog
@@ -189,34 +190,58 @@ def submit_payment_proof(milestone, customer, *, file, claimed_amount, payment_d
 
 
 @transaction.atomic
-def approve_payment_proof(proof, admin_user, *, corrected_amount=None, corrected_date=None):
+def approve_payment_proof(proof, admin_user, *, schedule=None):
+    """Marks the proof's milestone PAID for the claimed amount.
+
+    When the claimed amount differs from the milestone, the milestone is re-valued to what was paid and the
+    difference has to be re-planned: `schedule` replaces the plot's unpaid milestones (as with an approved
+    change request) and must add up to the balance left after this payment.
+    """
     if proof.status != PaymentProof.Status.PENDING:
         raise PaymentError("This proof has already been reviewed.", "already_reviewed")
 
-    # Approval marks the whole milestone PAID, so a short amount would silently write off the difference.
-    approved_amount = corrected_amount if corrected_amount is not None else proof.claimed_amount
-    if approved_amount < proof.milestone.amount:
-        raise PaymentError(
-            f"Approved amount ₹{approved_amount:,.2f} is less than the milestone amount ₹{proof.milestone.amount:,.2f}. "
-            "Reject the proof, or edit the milestone amount first.",
-            "short_payment",
-        )
+    milestone = proof.milestone
+    paid_amount = proof.claimed_amount
+    if paid_amount != milestone.amount:
+        unpaid = milestone.plot.milestones.exclude(status__in=[Milestone.Status.PAID, Milestone.Status.UNDER_REVIEW])
+        remaining = (unpaid.aggregate(total=Sum("amount"))["total"] or Decimal("0")) + milestone.amount - paid_amount
+        if remaining < 0:
+            raise PaymentError(
+                f"Claimed ₹{paid_amount:,.2f} is more than the whole outstanding balance. Reject the proof.",
+                "overpaid_balance",
+            )
+        schedule = schedule or []
+        if remaining > 0 and not schedule:
+            raise PaymentError(
+                "The claimed amount doesn't match the milestone — approving needs a revised schedule for the remaining balance.",
+                "schedule_required",
+            )
+        planned = sum((Decimal(item["amount"]) for item in schedule), Decimal("0"))
+        if abs(planned - remaining) >= 1:
+            raise PaymentError(
+                f"The revised schedule adds up to ₹{planned:,.2f} but ₹{remaining:,.2f} is left to pay.",
+                "schedule_total_mismatch",
+            )
 
     proof.status = PaymentProof.Status.APPROVED
     proof.reviewed_by = admin_user
     proof.reviewed_at = timezone.now()
     proof.save()
 
-    milestone = proof.milestone
+    previous_amount = milestone.amount
+    milestone.amount = paid_amount
     milestone.status = Milestone.Status.PAID
-    milestone.paid_date = corrected_date or proof.payment_date
+    milestone.paid_date = proof.payment_date
     milestone.payment_mode = proof.payment_mode
     milestone.transaction_reference = proof.transaction_reference
     milestone.save()
 
+    if paid_amount != previous_amount:
+        apply_schedule(milestone.plot, schedule)
+
     from documents.services import generate_receipt_document
 
-    generate_receipt_document(milestone, proof, corrected_amount or proof.claimed_amount)
+    generate_receipt_document(milestone, proof, paid_amount)
 
     notify_customer(
         proof.submitted_by,
@@ -225,9 +250,50 @@ def approve_payment_proof(proof, admin_user, *, corrected_amount=None, corrected
         f"Your payment for '{milestone.name}' has been approved. Receipt is now in Documents.",
         deep_link=f"milestone:{milestone.id}",
     )
-    AuditLog.record(admin_user, "payment_proof.approve", target=proof, ip_address=None)
+    details = None
+    if paid_amount != previous_amount:
+        details = {"milestone_amount": str(previous_amount), "paid_amount": str(paid_amount), "schedule": _jsonable_schedule(schedule)}
+    AuditLog.record(admin_user, "payment_proof.approve", target=proof, details=details, ip_address=None)
     refresh_plot_milestone_statuses(milestone.plot)
     return proof
+
+
+@transaction.atomic
+def regenerate_milestone_receipt(milestone, admin_user):
+    """Re-issues the receipt PDF for a PAID milestone from its current amount and payment details
+    (e.g. after a correction, or a milestone marked paid without a platform receipt). Earlier receipts
+    are hidden from the customer, not deleted, so the history stays in Documents for admins.
+    """
+    if milestone.status != Milestone.Status.PAID:
+        raise PaymentError("Only paid milestones have a receipt.", "not_paid")
+
+    proof = milestone.proofs.filter(status=PaymentProof.Status.APPROVED).order_by("-reviewed_at").first()
+    customer = proof.submitted_by if proof else milestone.plot.customers.filter(plot_role="PRIMARY").first()
+    if customer is None:
+        raise PaymentError("This plot has no buyer to issue the receipt to.", "no_customer")
+
+    entries = [
+        {
+            "payment_by": milestone.payment_mode or (proof.payment_mode if proof else ""),
+            "payment_date": milestone.paid_date or (proof.payment_date if proof else date.today()),
+            "bank": "",
+            "reference": milestone.transaction_reference or (proof.transaction_reference if proof else ""),
+            "amount": milestone.amount,
+        }
+    ]
+    previous = list(milestone.documents.filter(doc_type="PAYMENT_RECEIPT", is_visible_to_customer=True).values_list("id", flat=True))
+
+    from documents.models import Document
+    from documents.services import generate_receipt_document
+
+    document = generate_receipt_document(milestone, proof, milestone.amount, entries=entries, customer=customer)
+    Document.objects.filter(id__in=previous).update(is_visible_to_customer=False)
+
+    AuditLog.record(
+        admin_user, "milestone.regenerate_receipt", target=milestone,
+        details={"document": document.id, "replaced": previous}, ip_address=None,
+    )
+    return document
 
 
 def reject_payment_proof(proof, admin_user, *, reason):

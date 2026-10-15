@@ -18,13 +18,12 @@ import {
   Inbox,
   ListOrdered,
   Search,
-  SlidersHorizontal,
   XCircle,
 } from 'lucide-react'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Card, StatCard } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
-import { Input, Select, FieldWrap, Textarea } from '@/components/ui/Field'
+import { Input, Select, Textarea } from '@/components/ui/Field'
 import { FilePreview } from '@/components/ui/FilePreview'
 import { FullPageSpinner } from '@/components/ui/Spinner'
 import { EmptyState, ErrorState } from '@/components/ui/EmptyState'
@@ -32,16 +31,20 @@ import { useToast } from '@/components/ui/Toast'
 import { apiErrorMessage } from '@/lib/api'
 import { absoluteMediaUrl, formatAge, formatCurrency, formatCurrencyCompact, formatDate, formatDateTime } from '@/lib/format'
 import { useAllProjects } from '@/features/projects/api'
-import type { PaymentProofQueueItem } from '@/types'
+import type { PaymentProofQueueItem, ScheduleItem } from '@/types'
 import { ageTone } from '@/features/kyc/shared'
 import {
   useApprovePaymentProof,
   usePaymentVerificationQueue,
+  usePlotSchedule,
   usePaymentVerificationStats,
   useRejectPaymentProof,
   type PaymentQueueFilters,
 } from './api'
+import { buildPaymentProposal, scheduleTotal } from './changeProposal'
+import { MilestonePill } from './milestoneStatus'
 import { PlotScheduleDrawer } from './PlotScheduleDrawer'
+import { ScheduleEditor } from './ScheduleEditor'
 
 type View = 'pending' | 'mismatch' | 'stale' | 'APPROVED' | 'REJECTED' | 'all'
 
@@ -347,14 +350,14 @@ function ReviewPanel({ proof: p, onDecided, onOpenSchedule }: { proof: PaymentPr
             tone="bad"
             icon={<ArrowDownRight className="size-4" />}
             title={`Declared amount is short by ${formatCurrency(-diff)}`}
-            body={`Claimed ${formatCurrency(p.claimed_amount)} against ${formatCurrency(p.expected_amount)}. Can't be approved below the milestone amount — reject it, or edit the milestone first.`}
+            body={`Claimed ${formatCurrency(p.claimed_amount)} against ${formatCurrency(p.expected_amount)}. Approving re-plans the ${formatCurrency(-diff)} shortfall across the unpaid milestones — you'll review the new schedule first.`}
           />
         ) : (
           <CheckRow
             tone="warn"
             icon={<ArrowUpRight className="size-4" />}
             title={`Declared amount is over by ${formatCurrency(diff)}`}
-            body={`Claimed ${formatCurrency(p.claimed_amount)} against ${formatCurrency(p.expected_amount)}.`}
+            body={`Claimed ${formatCurrency(p.claimed_amount)} against ${formatCurrency(p.expected_amount)}. Approving takes the extra ${formatCurrency(diff)} off the unpaid milestones — you'll review the new schedule first.`}
           />
         )}
         {paidLateBy > 0 && (
@@ -406,22 +409,33 @@ function DecisionArea({ proof: p, onDecided }: { proof: PaymentProofQueueItem; o
   const toast = useToast()
   const approve = useApprovePaymentProof(p.id)
   const reject = useRejectPaymentProof(p.id)
-  const [adjusting, setAdjusting] = useState(false)
-  const [amount, setAmount] = useState(p.claimed_amount)
-  const [date, setDate] = useState(p.payment_date)
+  const mismatch = amountDiff(p) !== 0
+  // Only a mismatch needs the plot's schedule — the difference is re-planned over the unpaid milestones.
+  const { data: schedule = [], isLoading: scheduleLoading } = usePlotSchedule(mismatch ? p.plot_id : null)
+  const [reviewing, setReviewing] = useState(false)
+  const [draft, setDraft] = useState<ScheduleItem[]>([])
+  const [warning, setWarning] = useState<string | undefined>()
   const [reason, setReason] = useState('')
 
-  const approvedAmount = adjusting ? amount : p.claimed_amount
-  const short = Number(approvedAmount) < Number(p.expected_amount)
+  const proposal = mismatch && !scheduleLoading ? buildPaymentProposal(p, schedule) : null
+  const remaining = proposal?.remaining ?? 0
+  const overpaidBalance = remaining < 0
   const busy = approve.isPending || reject.isPending
 
-  const doApprove = async () => {
+  const draftValid = draft.every((s) => Number(s.amount) > 0 && s.due_date) && (draft.length > 0 || remaining === 0)
+  const totalMatches = Math.abs(scheduleTotal(draft) - remaining) < 1
+
+  const startReview = () => {
+    if (!proposal) return
+    setDraft(proposal.schedule)
+    setWarning(proposal.warning)
+    setReviewing(true)
+  }
+
+  const doApprove = async (newSchedule?: ScheduleItem[]) => {
     try {
-      await approve.mutateAsync({
-        corrected_amount: adjusting && amount !== p.claimed_amount ? amount : undefined,
-        corrected_date: adjusting && date !== p.payment_date ? date : undefined,
-      })
-      toast.success('Payment approved — receipt generated')
+      await approve.mutateAsync(newSchedule)
+      toast.success(newSchedule ? 'Payment approved — schedule updated and receipt generated' : 'Payment approved — receipt generated')
       onDecided()
     } catch (err) {
       toast.error(apiErrorMessage(err))
@@ -442,38 +456,95 @@ function DecisionArea({ proof: p, onDecided }: { proof: PaymentProofQueueItem; o
   const togglePreset = (preset: string) =>
     setReason((r) => (lines.includes(preset) ? lines.filter((l) => l && l !== preset).join('\n') : [r.trim(), preset].filter(Boolean).join('\n')))
 
+  if (reviewing) {
+    const kept = schedule.filter((m) => m.status === 'PAID' || m.id === p.milestone)
+    return (
+      <div className="space-y-3 border-t border-ink-100 pt-5">
+        <div>
+          <h4 className="text-sm font-semibold text-ink-800">Review &amp; accept new milestones</h4>
+          <p className="text-xs text-ink-400">
+            {p.milestone_name} is marked paid at {formatCurrency(p.claimed_amount)} instead of {formatCurrency(p.expected_amount)}. The rows below replace the
+            unpaid milestones and must add up to the {formatCurrency(remaining)} left to pay. Edit anything before approving.
+          </p>
+        </div>
+
+        {kept.length > 0 && (
+          <ul className="divide-y divide-ink-100 overflow-hidden rounded-lg border border-ink-100">
+            {kept.map((m) => {
+              const current = m.id === p.milestone
+              return (
+                <li key={m.id} className={clsx('flex items-center gap-3 px-3 py-2 text-sm', current ? 'bg-gold-50' : 'bg-ink-50/40 text-ink-400')}>
+                  <span className="w-5 shrink-0 text-xs font-semibold text-ink-400">{m.sequence}</span>
+                  <span className={clsx('min-w-0 flex-1 truncate', current && 'font-medium text-ink-900')}>{m.name}</span>
+                  <span className="w-44 shrink-0 text-right tabular-nums">
+                    {current ? (
+                      <>
+                        <span className="text-xs text-ink-400 line-through">{formatCurrency(m.amount)}</span>{' '}
+                        <span className="font-semibold text-gold-800">{formatCurrency(p.claimed_amount)}</span>
+                      </>
+                    ) : (
+                      formatCurrency(m.amount)
+                    )}
+                  </span>
+                  <span className="w-28 shrink-0 text-right">
+                    <MilestonePill status={current ? 'PAID' : m.status} />
+                  </span>
+                </li>
+              )
+            })}
+          </ul>
+        )}
+
+        {warning && <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">{warning}</p>}
+        {remaining === 0 && draft.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-ink-200 px-4 py-6 text-center text-sm text-ink-400">
+            This payment clears the whole balance — no milestones are left to pay.
+          </p>
+        ) : (
+          <ScheduleEditor schedule={draft} onChange={setDraft} target={remaining} />
+        )}
+        {!totalMatches && draftValid && (
+          <p className="text-xs text-red-600">The new schedule must add up to the remaining {formatCurrency(remaining)} before it can be approved.</p>
+        )}
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={() => setReviewing(false)}>
+            Back
+          </Button>
+          <Button variant="secondary" loading={approve.isPending} disabled={busy || overpaidBalance || !draftValid || !totalMatches} onClick={() => doApprove(draft)}>
+            <CheckCircle2 className="size-4" /> Approve &amp; update schedule
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="grid grid-cols-1 gap-4 border-t border-ink-100 pt-5 xl:grid-cols-2">
       <div className="space-y-3 rounded-lg border border-ink-100 p-4">
-        <div className="flex items-center justify-between">
-          <p className="text-sm font-semibold text-ink-800">Approve</p>
-          <button
-            type="button"
-            onClick={() => setAdjusting((a) => !a)}
-            className="flex items-center gap-1 text-xs font-medium text-ink-500 hover:text-ink-800"
-          >
-            <SlidersHorizontal className="size-3.5" /> {adjusting ? 'Use declared values' : 'Adjust amount/date'}
-          </button>
-        </div>
-        {adjusting && (
-          <div className="grid grid-cols-2 gap-3">
-            <FieldWrap label="Amount received">
-              <Input type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} />
-            </FieldWrap>
-            <FieldWrap label="Payment date">
-              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-            </FieldWrap>
-          </div>
+        <p className="text-sm font-semibold text-ink-800">Approve</p>
+        {mismatch ? (
+          <>
+            <p className="text-xs text-ink-400">
+              The claimed {formatCurrency(p.claimed_amount)} doesn&apos;t match the milestone&apos;s {formatCurrency(p.expected_amount)}. Approving marks it paid
+              at the claimed amount and re-plans the difference across the unpaid milestones.
+            </p>
+            {overpaidBalance && (
+              <p className="rounded-md bg-red-50 px-2.5 py-1.5 text-xs text-red-700">
+                More than the whole outstanding balance — approval is blocked.
+              </p>
+            )}
+            <Button variant="secondary" className="w-full" loading={scheduleLoading} disabled={busy || scheduleLoading || overpaidBalance} onClick={startReview}>
+              <ListOrdered className="size-4" /> Review &amp; accept new milestones
+            </Button>
+          </>
+        ) : (
+          <>
+            <p className="text-xs text-ink-400">Marks the milestone paid for {formatCurrency(p.claimed_amount)} and issues a receipt.</p>
+            <Button variant="secondary" className="w-full" loading={approve.isPending} disabled={busy} onClick={() => doApprove()}>
+              <CheckCircle2 className="size-4" /> Approve payment
+            </Button>
+          </>
         )}
-        <p className="text-xs text-ink-400">Marks the milestone paid for {formatCurrency(approvedAmount)} and issues a receipt.</p>
-        {short && (
-          <p className="rounded-md bg-red-50 px-2.5 py-1.5 text-xs text-red-700">
-            Below the milestone amount of {formatCurrency(p.expected_amount)} — approval is blocked.
-          </p>
-        )}
-        <Button variant="secondary" className="w-full" loading={approve.isPending} disabled={busy || short || !approvedAmount} onClick={doApprove}>
-          <CheckCircle2 className="size-4" /> Approve payment
-        </Button>
       </div>
 
       <div className="space-y-3 rounded-lg border border-ink-100 p-4">

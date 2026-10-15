@@ -1,5 +1,5 @@
 import { formatCurrency } from '@/lib/format'
-import type { Milestone, MilestoneChangeRequest, ScheduleItem } from '@/types'
+import type { Milestone, MilestoneChangeRequest, PaymentProofQueueItem, ScheduleItem } from '@/types'
 
 /** Milestones a change replaces — the backend's apply_schedule keeps PAID and UNDER_REVIEW ones. */
 export const replaceable = (schedule: Milestone[]) => schedule.filter((m) => m.status !== 'PAID' && m.status !== 'UNDER_REVIEW')
@@ -93,6 +93,36 @@ export function buildProposal(r: MilestoneChangeRequest, schedule: Milestone[]):
       return sent?.length ? { schedule: sent } : { schedule: current, warning: 'No specific split was requested — edit the schedule before approving.' }
     }
   }
+}
+
+/**
+ * A proof whose claimed amount differs from its milestone: the milestone is re-valued to what was paid, so the
+ * difference is spread over the unpaid milestones — the same re-plan a "pay more / pay less" request gets.
+ * Returns the replacement for the unpaid milestones and the balance it has to add up to.
+ */
+export function buildPaymentProposal(
+  p: Pick<PaymentProofQueueItem, 'milestone' | 'claimed_amount' | 'expected_amount' | 'milestone_due_date'>,
+  schedule: Milestone[],
+): Proposal & { remaining: number } {
+  const open = replaceable(schedule).filter((m) => m.id !== p.milestone)
+  const current: ScheduleItem[] = open.map((m) => ({ name: m.name, amount: m.amount, due_date: m.due_date }))
+  const total = open.reduce((sum, m) => sum + toPaise(m.amount), 0)
+  const rest = total + toPaise(p.expected_amount) - toPaise(p.claimed_amount)
+  const remaining = rest / 100
+
+  if (rest < 0) return { schedule: [], remaining, warning: 'The claimed amount is more than the whole outstanding balance — this proof should be rejected.' }
+  if (rest === 0) return { schedule: [], remaining }
+  if (open.length === 0) {
+    // Short on the last milestone: the shortfall becomes a new instalment a month later.
+    return { schedule: [{ name: 'Balance instalment', amount: fromPaise(rest), due_date: addMonths(p.milestone_due_date, 1) }], remaining }
+  }
+  // Shift every unpaid milestone by an equal share of the difference, keeping their shape.
+  const delta = splitEvenly(rest - total, open.length)
+  const shifted = open.map((m, i) => toPaise(m.amount) + delta[i])
+  if (shifted.every((a) => a > 0)) return { schedule: current.map((s, i) => ({ ...s, amount: fromPaise(shifted[i]) })), remaining }
+  // An overpayment larger than some instalments: split what's left evenly instead.
+  const parts = splitEvenly(rest, open.length)
+  return { schedule: current.map((s, i) => ({ ...s, amount: fromPaise(parts[i]) })), remaining }
 }
 
 /** Sum of a schedule in rupees. */

@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import clsx from 'clsx'
-import { CalendarClock, Download, ExternalLink, FileText, Pencil, Plus, Sparkles, Trash2 } from 'lucide-react'
+import { CalendarClock, Download, ExternalLink, FileText, Pencil, Plus, RefreshCw, Sparkles, Trash2 } from 'lucide-react'
 import { Drawer, Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { Input, FieldWrap, Textarea } from '@/components/ui/Field'
@@ -16,7 +16,7 @@ import { FilePreview } from '@/components/ui/FilePreview'
 import { downloadDocument } from '@/features/documents/api'
 import { useGenerateSchedule, usePlot } from '@/features/plots/api'
 import type { Milestone } from '@/types'
-import { useCreateMilestone, useDeleteMilestone, usePlotSchedule, useUpdateMilestone } from './api'
+import { useCreateMilestone, useDeleteMilestone, usePlotSchedule, useRegenerateReceipt, useUpdateMilestone } from './api'
 import { MilestonePill, dueHint, milestoneMeta } from './milestoneStatus'
 
 const emptyForm = { sequence: 1, name: '', description: '', amount: '', due_date: '', admin_remarks: '' }
@@ -29,12 +29,14 @@ export function PlotScheduleDrawer({ plotId, onClose }: { plotId: number; onClos
   const { data: schedule, isLoading } = usePlotSchedule(plotId)
   const generate = useGenerateSchedule(plotId)
   const deleteMilestone = useDeleteMilestone()
+  const regenerate = useRegenerateReceipt()
 
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState<Milestone | null>(null)
   const [formInitial, setFormInitial] = useState<FormValues>(emptyForm)
   const [deleteTarget, setDeleteTarget] = useState<Milestone | null>(null)
   const [receiptOf, setReceiptOf] = useState<Milestone | null>(null)
+  const [regenerateTarget, setRegenerateTarget] = useState<Milestone | null>(null)
 
   const milestones = schedule ?? []
   const primary = plot?.buyers.find((b) => b.plot_role === 'PRIMARY')
@@ -203,9 +205,23 @@ export function PlotScheduleDrawer({ plotId, onClose }: { plotId: number; onClos
                                 View
                               </button>
                               <ReceiptDownloadButton receipt={m.receipt} compact />
+                              <button
+                                onClick={() => setRegenerateTarget(m)}
+                                className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
+                              >
+                                <RefreshCw className="size-3" /> Regenerate
+                              </button>
                             </div>
                           ) : (
-                            <p className="mt-2 text-xs text-ink-400">No platform receipt — marked paid without an approved proof.</p>
+                            <div className="mt-2 flex items-center gap-1.5">
+                              <p className="min-w-0 flex-1 text-xs text-ink-400">No platform receipt — marked paid without an approved proof.</p>
+                              <button
+                                onClick={() => setRegenerateTarget(m)}
+                                className="flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium text-ink-600 hover:bg-ink-50 hover:text-ink-800"
+                              >
+                                <FileText className="size-3" /> Generate receipt
+                              </button>
+                            </div>
                           ))}
                         <div className="mt-2 hidden gap-1 group-hover:flex">
                           <button onClick={() => openEdit(m)} className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-ink-500 hover:bg-ink-50 hover:text-ink-800">
@@ -280,6 +296,27 @@ export function PlotScheduleDrawer({ plotId, onClose }: { plotId: number; onClos
           </div>
         </Modal>
       )}
+
+      <ConfirmDialog
+        open={!!regenerateTarget}
+        title={regenerateTarget?.receipt ? 'Regenerate receipt' : 'Generate receipt'}
+        message={`Issue a new receipt for "${regenerateTarget?.name}" at ${formatCurrency(regenerateTarget?.amount ?? 0)} from its current payment details? ${
+          regenerateTarget?.receipt ? 'The previous receipt is hidden from the customer. ' : ''
+        }The customer is notified.`}
+        confirmLabel={regenerateTarget?.receipt ? 'Regenerate' : 'Generate'}
+        loading={regenerate.isPending}
+        onClose={() => setRegenerateTarget(null)}
+        onConfirm={async () => {
+          if (!regenerateTarget) return
+          try {
+            await regenerate.mutateAsync(regenerateTarget.id)
+            toast.success('Receipt issued — customer notified')
+            setRegenerateTarget(null)
+          } catch (err) {
+            toast.error(apiErrorMessage(err))
+          }
+        }}
+      />
 
       <ConfirmDialog
         open={!!deleteTarget}

@@ -97,6 +97,21 @@ export function useUpdateMilestone() {
   })
 }
 
+/** Re-issues a PAID milestone's receipt from its current details; older receipts are hidden from the customer. */
+export function useRegenerateReceipt() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const { data } = await api.post<Milestone>(`/admin/milestones/${id}/regenerate-receipt/`)
+      return data
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['milestones'] })
+      qc.invalidateQueries({ queryKey: ['documents'] })
+    },
+  })
+}
+
 export function useDeleteMilestone() {
   const qc = useQueryClient()
   return useMutation({
@@ -147,8 +162,8 @@ export function usePaymentVerificationQueue(filters: PaymentQueueFilters) {
 export function useApprovePaymentProof(id: number) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (payload: { corrected_amount?: string; corrected_date?: string }) => {
-      const { data } = await api.post<PaymentProofQueueItem>(`/admin/payment-verification-queue/${id}/approve/`, payload)
+    mutationFn: async (schedule?: ScheduleItem[]) => {
+      const { data } = await api.post<PaymentProofQueueItem>(`/admin/payment-verification-queue/${id}/approve/`, schedule ? { schedule } : {})
       return data
     },
     onSuccess: () => {

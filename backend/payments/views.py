@@ -148,6 +148,15 @@ class AdminMilestoneViewSet(viewsets.ModelViewSet):
         qs = super().filter_queryset(queryset)
         return qs.distinct() if self.request.query_params.get("search") else qs
 
+    @action(detail=True, methods=["post"], url_path="regenerate-receipt")
+    def regenerate_receipt(self, request, pk=None):
+        milestone = self.get_object()
+        try:
+            services.regenerate_milestone_receipt(milestone, request.user)
+        except services.PaymentError as exc:
+            return Response({"detail": exc.message, "errors": {"code": exc.code}}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(self.get_serializer(self.get_queryset().get(pk=milestone.pk)).data)
+
     @action(detail=False, methods=["get"])
     def stats(self, request):
         """Count + amount per status (optionally ?plot__project=<id>)."""
@@ -275,12 +284,7 @@ class ApprovePaymentProofView(APIView):
         serializer = ApprovePaymentProofSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
-            services.approve_payment_proof(
-                proof,
-                request.user,
-                corrected_amount=serializer.validated_data.get("corrected_amount"),
-                corrected_date=serializer.validated_data.get("corrected_date"),
-            )
+            services.approve_payment_proof(proof, request.user, schedule=serializer.validated_data.get("schedule"))
         except services.PaymentError as exc:
             return Response({"detail": exc.message, "errors": {"code": exc.code}}, status=status.HTTP_400_BAD_REQUEST)
         return Response(PaymentVerificationQueueSerializer(proof_queryset().get(pk=proof.pk)).data)
