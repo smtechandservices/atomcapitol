@@ -3,6 +3,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
+import { Eye, EyeOff } from 'lucide-react'
 import { useAuth } from '@/lib/auth'
 import { Button } from '@/components/ui/Button'
 import { Input, FieldWrap } from '@/components/ui/Field'
@@ -13,6 +14,7 @@ export function LoginPage() {
   const router = useRouter()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -63,14 +65,26 @@ export function LoginPage() {
             />
           </FieldWrap>
           <FieldWrap label="Password" required>
-            <Input
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              required
-            />
+            <div className="relative">
+              <Input
+                type={showPassword ? 'text' : 'password'}
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                className="pr-10"
+                required
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                aria-pressed={showPassword}
+                className="absolute inset-y-0 right-0 flex w-10 items-center justify-center rounded-r-lg text-ink-400 hover:text-ink-700 focus:outline-none focus-visible:text-gold-600"
+              >
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
           </FieldWrap>
           {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">{error}</p>}
           <Button type="submit" variant="secondary" className="w-full" loading={loading}>
