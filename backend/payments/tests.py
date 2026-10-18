@@ -68,6 +68,29 @@ class ApprovePaymentProofTests(TestCase):
         self.assertEqual([(m.sequence, m.amount) for m in ms], [(1, Decimal("80000")), (2, Decimal("110000")), (3, Decimal("110000"))])
         self.assertEqual(ms[0].status, Milestone.Status.PAID)
 
+    def test_replan_after_out_of_order_payment(self, *_):
+        # Milestone 3 already paid, so the kept sequences are {1, 3}: new ones must start at 4, not 3.
+        self.plot.milestones.filter(sequence=3).update(status=Milestone.Status.PAID)
+        schedule = [{"name": "Balance", "amount": Decimal("120000"), "due_date": date(2026, 2, 10)}]
+        services.approve_payment_proof(self._proof("80000"), self.admin, schedule=schedule)
+        ms = list(self.plot.milestones.order_by("sequence"))
+        self.assertEqual([(m.sequence, m.amount) for m in ms], [(1, Decimal("80000")), (3, Decimal("100000")), (4, Decimal("120000"))])
+
+    def test_replan_before_kyc_instalment_recorded(self, *_):
+        # Generated schedules start at 2 until the KYC receipt becomes instalment 1.
+        self.plot.milestones.filter(sequence=1).delete()
+        services.refresh_plot_milestone_statuses(self.plot)
+        self.first = self.plot.milestones.get(sequence=2)
+        schedule = [{"name": "Balance", "amount": Decimal("120000"), "due_date": date(2026, 3, 10)}]
+        services.approve_payment_proof(self._proof("80000"), self.admin, schedule=schedule)
+        self.assertEqual(list(self.plot.milestones.values_list("sequence", flat=True)), [2, 3])
+
+    def test_replan_with_nothing_paid_keeps_instalment_1_free(self, *_):
+        self.plot.milestones.all().delete()
+        Milestone.objects.create(plot=self.plot, sequence=2, name="Instalment 2", amount=Decimal("100000"), due_date=date(2026, 2, 10))
+        services.apply_schedule(self.plot, [{"name": "Balance", "amount": Decimal("100000"), "due_date": date(2026, 3, 10)}])
+        self.assertEqual(list(self.plot.milestones.values_list("sequence", flat=True)), [2])
+
     def test_payment_clearing_whole_balance(self, *_):
         services.approve_payment_proof(self._proof("300000"), self.admin)
         self.assertEqual(list(self.plot.milestones.values_list("amount", flat=True)), [Decimal("300000")])

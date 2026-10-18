@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from dateutil.relativedelta import relativedelta
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import Max, Sum
 from django.utils import timezone
 
 from core.models import AuditLog
@@ -341,7 +341,9 @@ def apply_schedule(plot, schedule):
     (a list of {name, amount, due_date}), keeping paid milestones untouched.
     """
     kept = plot.milestones.filter(status__in=[Milestone.Status.PAID, Milestone.Status.UNDER_REVIEW])
-    next_sequence = (kept.count()) + 1
+    # Continue after the highest kept milestone, never at 1: kept ones needn't be numbered 1..n (instalment 1
+    # only exists once the KYC receipt is recorded), and 1 stays reserved so record_kyc_instalment can still add it.
+    next_sequence = max(kept.aggregate(top=Max("sequence"))["top"] or 0, KYC_INSTALMENT_SEQUENCE) + 1
     plot.milestones.exclude(status__in=[Milestone.Status.PAID, Milestone.Status.UNDER_REVIEW]).delete()
 
     new_milestones = [
