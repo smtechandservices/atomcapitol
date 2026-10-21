@@ -1,7 +1,7 @@
 # Atom Capitol — Backend (Django + DRF)
 
 Backend for the Atom Capitol **CustomerApp** (plot buyers) and **Admin Portal** (staff),
-implementing the SRS: email+OTP customer login gated behind KYC, plot/milestone
+implementing the SRS: email+OTP customer login (with self sign-up) gated behind KYC, plot/milestone
 management, payment proof verification, documents, tickets, notifications and audit
 logging.
 
@@ -34,10 +34,6 @@ python manage.py runserver
 API root: `http://127.0.0.1:8000/api/`
 Interactive docs: `http://127.0.0.1:8000/api/docs/` (Swagger) and `/api/redoc/`
 Django admin (staff-only, separate from the API): `http://127.0.0.1:8000/django-admin/`
-
-For a runnable, end-to-end `curl` walkthrough of every endpoint (admin setup → customer
-onboarding → KYC → payments → tickets → notifications → everything else), see
-[`CURL_TESTING.md`](./CURL_TESTING.md).
 
 In dev, OTP emails print to the console (`EMAIL_BACKEND` = console backend) — read the
 6-digit code from the `runserver` output.
@@ -74,18 +70,32 @@ In dev, OTP emails print to the console (`EMAIL_BACKEND` = console backend) — 
 
 ## Business rules encoded (from the SRS "Decisions confirmed")
 
+- Anyone can sign in: an unknown email gets an OTP and becomes a self-registered customer
+  (`accounts/services.py:get_login_customer`). Without a plot they submit KYC Step 1
+  (claimed project + plot number as free text, Aadhaar, PAN), then wait for admin to assign a
+  listed plot, which unlocks KYC Steps 2–3 (`core/permissions.py:IsCustomerWithPlot`). Until
+  Step 1 is in, sign-ups stay out of the admin customers list and campaigns
+  (`Customer.objects.on_record()`). Login and resend-OTP are throttled to 20/hour per IP.
 - KYC resubmission is unlimited — only the rejected step needs to be redone.
 - Milestone plans are generated per plot from `total_value`, `amount_paid_outside_app`
-  and `instalment_count` captured at assignment (`payments/services.py:generate_milestone_schedule`).
+  and `instalment_count` captured at assignment (required for a primary buyer), but only once the
+  buyer's KYC Step 2 booking receipt is approved, so instalment 2 falls due a month after approval
+  (`payments/services.py:ensure_schedule`, called on assignment and on Step 2 approval).
+  Instalment 1 is the KYC Step 2 booking receipt, recorded as PAID when Step 2 is approved; it
+  covers the money paid outside the app, so only the excess counts separately
+  (`outside_app_not_scheduled`).
 - Payment proof is submitted against the **full** milestone amount; partial payment goes
   through a Milestone Change Request instead.
 - No payment gateway — customers transfer via bank/UPI details from `SiteSettings` and
   upload proof.
 - A customer-uploaded proof only moves a milestone to `UNDER_REVIEW`; only an admin
-  approval marks it `PAID` and triggers the receipt.
+  approval marks it `PAID` and triggers the receipt. Customers don't enter a transaction ID:
+  the admin enters the bank and transaction reference (checked against the bank statement)
+  when approving a payment proof or generating the KYC receipt, and both print on the receipt.
 - Unassigning/transferring a plot revokes that email's access immediately, even for an
   already-issued JWT (`CustomerJWTAuthentication` checks `customer.is_active` on every
-  request).
+  request). The email may sign in again later and starts over as a new customer
+  (`restart_as_new_customer`); one switched off by an admin while still holding a plot stays blocked.
 - Every admin mutation writes an `AuditLog` row.
 
 ## Scheduled jobs (wire up via cron / Celery beat in production)
@@ -105,7 +115,7 @@ python manage.py makemigrations --check --dry-run   # fails if models drifted fr
 ## Notable endpoints
 
 CustomerApp (prefix `/api/customer/`): `auth/login`, `auth/verify-otp`, `auth/resend-otp`,
-`kyc/plot-check`, `kyc/step2`, `kyc/step3`, `kyc/status`, `profile`, `profile/request-correction`,
+`kyc/step1`, `kyc/plot-check`, `kyc/step2`, `kyc/step3`, `kyc/status`, `profile`, `profile/request-correction`,
 `settings`, `sales-contact`, `plot`, `payments`, `payments/<id>`, `payments/<id>/pay`,
 `payments/change-requests`, `documents`, `tickets`, `tickets/<id>/reply`, `notifications`,
 `banners`.

@@ -37,8 +37,13 @@ function plotBlockReason(plot: Plot, role: PlotRole): string | null {
   return null
 }
 
+/** A primary buyer's schedule is generated from these, so they're required; co-applicants share the plot's terms. */
+export function paymentTermsReady(total: string | number | undefined, instalments: string | number | undefined) {
+  return Number(total) > 0 && Number(instalments) >= 2
+}
+
 export function assignPlotReady(v: AssignPlotValue) {
-  return !!v.plot && !plotBlockReason(v.plot, v.role)
+  return !!v.plot && !plotBlockReason(v.plot, v.role) && (v.role !== 'PRIMARY' || paymentTermsReady(v.total_value, v.instalment_count))
 }
 
 export function toAssignPayload(email: string, v: AssignPlotValue): AssignPayload {
@@ -189,17 +194,19 @@ export function AssignPlotFields({ value, onChange }: { value: AssignPlotValue; 
         <div className="space-y-3 rounded-lg border border-ink-100 bg-ink-50/40 p-3">
           <div>
             <p className="text-xs font-semibold text-ink-700">Payment terms</p>
-            <p className="text-xs text-ink-400">Optional. With total value and instalments set, the milestone schedule is generated automatically.</p>
+            <p className="text-xs text-ink-400">
+              The schedule is generated from these once the buyer&apos;s booking receipt (KYC Step 2) is approved, which becomes instalment 1.
+            </p>
           </div>
           <div className="grid grid-cols-3 gap-3">
-            <FieldWrap label="Total value">
+            <FieldWrap label="Total value" required>
               <Input type="number" min={0} value={value.total_value} onChange={(e) => set({ total_value: e.target.value })} />
             </FieldWrap>
             <FieldWrap label="Paid outside app">
               <Input type="number" min={0} value={value.amount_paid_outside_app} onChange={(e) => set({ amount_paid_outside_app: e.target.value })} placeholder="0" />
             </FieldWrap>
-            <FieldWrap label="Instalments">
-              <Input type="number" min={1} value={value.instalment_count} onChange={(e) => set({ instalment_count: e.target.value })} />
+            <FieldWrap label="Instalments" required error={value.instalment_count && Number(value.instalment_count) < 2 ? 'At least 2' : undefined}>
+              <Input type="number" min={2} value={value.instalment_count} onChange={(e) => set({ instalment_count: e.target.value })} />
             </FieldWrap>
           </div>
         </div>

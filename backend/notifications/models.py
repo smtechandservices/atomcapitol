@@ -10,6 +10,7 @@ class Notification(TimeStampedModel):
     class NotifType(models.TextChoices):
         KYC_APPROVED = "KYC_APPROVED", "KYC approved"
         KYC_REJECTED = "KYC_REJECTED", "KYC rejected"
+        PLOT_ASSIGNED = "PLOT_ASSIGNED", "Plot assigned"
         PAYMENT_PROOF_SUBMITTED = "PAYMENT_PROOF_SUBMITTED", "Payment proof submitted"
         PAYMENT_APPROVED = "PAYMENT_APPROVED", "Payment approved"
         PAYMENT_REJECTED = "PAYMENT_REJECTED", "Payment rejected"

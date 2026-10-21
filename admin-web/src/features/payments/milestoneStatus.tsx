@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { formatDate } from '@/lib/format'
-import type { Milestone, MilestoneStatus } from '@/types'
+import type { BookingPayment, Milestone, MilestoneStatus } from '@/types'
 
 export const MILESTONE_STATUSES: { value: MilestoneStatus; label: string; dot: string; pill: string }[] = [
   { value: 'OVERDUE', label: 'Overdue', dot: 'bg-red-500', pill: 'bg-red-50 text-red-700 ring-red-200' },
@@ -21,6 +21,31 @@ export function MilestonePill({ status }: { status: string }) {
     <span className={clsx('inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1', m.pill)}>
       <span className={clsx('size-1.5 rounded-full', m.dot)} />
       {m.label}
+    </span>
+  )
+}
+
+/** Instalment 1 is the booking payment, created from the KYC Step 2 receipt when it's approved. Until then a
+ *  schedule starts at instalment 2, and lists show a stand-in row for 1. */
+export function bookingInstalmentPending(milestones: Pick<Milestone, 'sequence'>[]) {
+  return milestones.length > 0 && !milestones.some((m) => m.sequence === 1)
+}
+
+export function bookingPendingHint(booking: BookingPayment | null | undefined) {
+  if (booking?.source === 'receipt') {
+    return booking.step2_status === 'REJECTED'
+      ? 'Booking payment · KYC receipt rejected, waiting for the buyer to resubmit'
+      : 'Booking payment · from the KYC receipt, recorded when Step 2 is approved'
+  }
+  if (booking?.source === 'outside_app') return 'Booking payment · paid outside the app, recorded when KYC Step 2 is approved'
+  return 'Booking payment · added from the receipt when KYC Step 2 is approved'
+}
+
+export function BookingPendingPill() {
+  return (
+    <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-0.5 border border-dashed border-ink-300 text-xs font-semibold text-ink-500">
+      <span className="size-1.5 rounded-full border border-ink-300" />
+      Awaiting KYC
     </span>
   )
 }

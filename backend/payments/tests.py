@@ -39,23 +39,29 @@ class ApprovePaymentProofTests(TestCase):
         self.first.refresh_from_db()
         return services.submit_payment_proof(
             self.first, self.customer, file=ContentFile(b"%PDF-1.4", name="p.pdf"), claimed_amount=Decimal(amount),
-            payment_date=date(2026, 1, 9), payment_mode="NEFT", transaction_reference="REF1",
+            payment_date=date(2026, 1, 9), payment_mode="NEFT",
         )
 
     def test_matching_amount_needs_no_schedule(self, *_):
-        proof = services.approve_payment_proof(self._proof("100000"), self.admin)
+        proof = services.approve_payment_proof(self._proof("100000"), self.admin, bank="HDFC Bank", transaction_reference="REF1")
         self.assertEqual(proof.status, PaymentProof.Status.APPROVED)
         self.assertEqual(self.plot.milestones.count(), 3)
 
+    def test_admin_receipt_details_are_recorded(self, *_):
+        proof = services.approve_payment_proof(self._proof("100000"), self.admin, bank="SBI", transaction_reference="UTR123", payment_mode="RTGS")
+        self.first.refresh_from_db()
+        self.assertEqual((self.first.bank, self.first.transaction_reference, self.first.payment_mode), ("SBI", "UTR123", "RTGS"))
+        self.assertEqual(proof.transaction_reference, "UTR123")
+
     def test_mismatch_requires_schedule(self, *_):
         with self.assertRaises(services.PaymentError) as ctx:
-            services.approve_payment_proof(self._proof("80000"), self.admin)
+            services.approve_payment_proof(self._proof("80000"), self.admin, bank="HDFC Bank", transaction_reference="REF1")
         self.assertEqual(ctx.exception.code, "schedule_required")
 
     def test_mismatch_schedule_must_cover_remaining(self, *_):
         bad = [{"name": "Instalment 2 of 3", "amount": Decimal("100000"), "due_date": date(2026, 2, 10)}]
         with self.assertRaises(services.PaymentError) as ctx:
-            services.approve_payment_proof(self._proof("80000"), self.admin, schedule=bad)
+            services.approve_payment_proof(self._proof("80000"), self.admin, bank="HDFC Bank", transaction_reference="REF1", schedule=bad)
         self.assertEqual(ctx.exception.code, "schedule_total_mismatch")
 
     def test_short_payment_revalues_milestone_and_replans(self, *_):
@@ -63,7 +69,7 @@ class ApprovePaymentProofTests(TestCase):
             {"name": "Instalment 2 of 3", "amount": Decimal("110000"), "due_date": date(2026, 2, 10)},
             {"name": "Instalment 3 of 3", "amount": Decimal("110000"), "due_date": date(2026, 3, 10)},
         ]
-        services.approve_payment_proof(self._proof("80000"), self.admin, schedule=schedule)
+        services.approve_payment_proof(self._proof("80000"), self.admin, bank="HDFC Bank", transaction_reference="REF1", schedule=schedule)
         ms = list(self.plot.milestones.order_by("sequence"))
         self.assertEqual([(m.sequence, m.amount) for m in ms], [(1, Decimal("80000")), (2, Decimal("110000")), (3, Decimal("110000"))])
         self.assertEqual(ms[0].status, Milestone.Status.PAID)
@@ -72,7 +78,7 @@ class ApprovePaymentProofTests(TestCase):
         # Milestone 3 already paid, so the kept sequences are {1, 3}: new ones must start at 4, not 3.
         self.plot.milestones.filter(sequence=3).update(status=Milestone.Status.PAID)
         schedule = [{"name": "Balance", "amount": Decimal("120000"), "due_date": date(2026, 2, 10)}]
-        services.approve_payment_proof(self._proof("80000"), self.admin, schedule=schedule)
+        services.approve_payment_proof(self._proof("80000"), self.admin, bank="HDFC Bank", transaction_reference="REF1", schedule=schedule)
         ms = list(self.plot.milestones.order_by("sequence"))
         self.assertEqual([(m.sequence, m.amount) for m in ms], [(1, Decimal("80000")), (3, Decimal("100000")), (4, Decimal("120000"))])
 
@@ -82,7 +88,7 @@ class ApprovePaymentProofTests(TestCase):
         services.refresh_plot_milestone_statuses(self.plot)
         self.first = self.plot.milestones.get(sequence=2)
         schedule = [{"name": "Balance", "amount": Decimal("120000"), "due_date": date(2026, 3, 10)}]
-        services.approve_payment_proof(self._proof("80000"), self.admin, schedule=schedule)
+        services.approve_payment_proof(self._proof("80000"), self.admin, bank="HDFC Bank", transaction_reference="REF1", schedule=schedule)
         self.assertEqual(list(self.plot.milestones.values_list("sequence", flat=True)), [2, 3])
 
     def test_replan_with_nothing_paid_keeps_instalment_1_free(self, *_):
@@ -92,12 +98,12 @@ class ApprovePaymentProofTests(TestCase):
         self.assertEqual(list(self.plot.milestones.values_list("sequence", flat=True)), [2])
 
     def test_payment_clearing_whole_balance(self, *_):
-        services.approve_payment_proof(self._proof("300000"), self.admin)
+        services.approve_payment_proof(self._proof("300000"), self.admin, bank="HDFC Bank", transaction_reference="REF1")
         self.assertEqual(list(self.plot.milestones.values_list("amount", flat=True)), [Decimal("300000")])
 
     def test_payment_above_whole_balance_blocked(self, *_):
         with self.assertRaises(services.PaymentError) as ctx:
-            services.approve_payment_proof(self._proof("400000"), self.admin, schedule=[])
+            services.approve_payment_proof(self._proof("400000"), self.admin, bank="HDFC Bank", transaction_reference="REF1", schedule=[])
         self.assertEqual(ctx.exception.code, "overpaid_balance")
 
 
@@ -123,9 +129,9 @@ class RegenerateReceiptTests(TestCase):
         self.m.refresh_from_db()
         proof = services.submit_payment_proof(
             self.m, self.customer, file=ContentFile(b"%PDF-1.4", name="p.pdf"), claimed_amount=Decimal("100000"),
-            payment_date=date(2026, 1, 9), payment_mode="NEFT", transaction_reference="REF9",
+            payment_date=date(2026, 1, 9), payment_mode="NEFT",
         )
-        services.approve_payment_proof(proof, self.admin)
+        services.approve_payment_proof(proof, self.admin, bank="HDFC Bank", transaction_reference="REF1")
         first = self.m.documents.get()
         new = services.regenerate_milestone_receipt(self.m, self.admin)
         first.refresh_from_db()
@@ -139,3 +145,34 @@ class RegenerateReceiptTests(TestCase):
         doc = services.regenerate_milestone_receipt(self.m, self.admin)
         self.assertEqual(doc.customer, self.customer)
         self.assertTrue(doc.file)
+
+
+class OutsideAppMoneyTests(TestCase):
+    """Money paid outside the app is the booking payment that the KYC receipt becomes instalment 1 for."""
+
+    def setUp(self):
+        project = Project.objects.create(name="Test Project")
+        self.plot = Plot.objects.create(
+            project=project, plot_number="A-1", size="200", price=Decimal("550000"), total_value=Decimal("550000"),
+            amount_paid_outside_app=Decimal("10000"), instalment_count=10,
+        )
+        Milestone.objects.create(plot=self.plot, sequence=2, name="Instalment 2 of 10", amount=Decimal("540000"), due_date=date(2026, 11, 21))
+
+    def _instalment_1(self, status):
+        Milestone.objects.create(plot=self.plot, sequence=1, name="Instalment 1 of 10", amount=Decimal("10000"), due_date=date(2026, 10, 1), status=status)
+
+    def test_not_collected_until_the_kyc_receipt_is_approved(self):
+        self.assertEqual(services.outside_app_collected(self.plot), 0)
+        self.assertEqual(services.outside_app_not_scheduled(self.plot), Decimal("10000"))  # still planned around
+        self.assertEqual(services.pending_booking_payment(self.plot)["amount"], Decimal("10000"))
+
+    def test_counted_once_through_instalment_1(self):
+        self._instalment_1(Milestone.Status.PAID)
+        self.assertEqual(services.outside_app_collected(self.plot), 0)  # instalment 1 already is that money
+        self.assertIsNone(services.pending_booking_payment(self.plot))
+
+    def test_excess_over_instalment_1_counts_once_approved(self):
+        self.plot.amount_paid_outside_app = Decimal("15000")
+        self.plot.save()
+        self._instalment_1(Milestone.Status.PAID)
+        self.assertEqual(services.outside_app_collected(self.plot), Decimal("5000"))

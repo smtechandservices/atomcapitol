@@ -159,11 +159,18 @@ export function usePaymentVerificationQueue(filters: PaymentQueueFilters) {
   })
 }
 
+/** Printed on the receipt; entered by the admin from their bank statement. */
+export interface ProofReceiptDetails {
+  payment_mode: string
+  bank: string
+  transaction_reference: string
+}
+
 export function useApprovePaymentProof(id: number) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (schedule?: ScheduleItem[]) => {
-      const { data } = await api.post<PaymentProofQueueItem>(`/admin/payment-verification-queue/${id}/approve/`, schedule ? { schedule } : {})
+    mutationFn: async ({ receipt, schedule }: { receipt: ProofReceiptDetails; schedule?: ScheduleItem[] }) => {
+      const { data } = await api.post<PaymentProofQueueItem>(`/admin/payment-verification-queue/${id}/approve/`, schedule ? { ...receipt, schedule } : receipt)
       return data
     },
     onSuccess: () => {

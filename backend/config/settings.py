@@ -156,6 +156,8 @@ REST_FRAMEWORK = {
         "rest_framework.renderers.BrowsableAPIRenderer",
     ),
     "EXCEPTION_HANDLER": "core.exceptions.api_exception_handler",
+    # Only views that set throttle_scope are throttled.
+    "DEFAULT_THROTTLE_RATES": {"customer_otp": "20/hour"},
 }
 
 SIMPLE_JWT = {

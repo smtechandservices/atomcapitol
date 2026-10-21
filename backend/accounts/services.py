@@ -2,6 +2,7 @@ import hmac
 
 from django.conf import settings
 from django.core.mail import send_mail
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from .models import OTP, Customer
@@ -14,15 +15,38 @@ class OTPSendError(Exception):
         super().__init__(message)
 
 
-def get_login_eligible_customer(email):
-    """Step 1: email must be registered AND assigned to a plot by admin. Returns None otherwise."""
-    try:
-        customer = Customer.objects.select_related("assigned_plot").get(email__iexact=email)
-    except Customer.DoesNotExist:
-        return None
-    if not customer.is_active or customer.assigned_plot_id is None:
+def get_login_customer(email, *, create=False):
+    """The customer signing in with `email`, or None if they may not. With `create`, an unknown email becomes a
+    new self-registered customer (verified by the OTP, then onboarded through KYC Step 1).
+
+    Revoked access only sticks while the customer still holds a plot (an admin switched them off). One whose plot
+    was unassigned or transferred away may sign in again, and starts over as a new customer (restart_as_new_customer).
+    """
+    customer = Customer.objects.select_related("assigned_plot").filter(email__iexact=email).first()
+    if customer is None:
+        if not create:
+            return None
+        try:
+            with transaction.atomic():
+                customer = Customer.objects.create(email=email.strip().lower(), is_self_registered=True)
+        except IntegrityError:  # a parallel request created it first
+            customer = Customer.objects.get(email__iexact=email)
+    if not customer.is_active and customer.assigned_plot_id is not None:
         return None
     return customer
+
+
+@transaction.atomic
+def restart_as_new_customer(customer):
+    """A former buyer whose plot was taken away signed in again: they go through onboarding from scratch."""
+    from kyc.services import reset_submission
+
+    customer.is_active = True
+    customer.is_self_registered = True
+    customer.plot_role = None
+    customer.kyc_status = Customer.KYCStatus.NOT_STARTED
+    customer.save(update_fields=["is_active", "is_self_registered", "plot_role", "kyc_status", "updated_at"])
+    reset_submission(customer)
 
 
 def send_otp_email(customer, otp):
@@ -92,6 +116,14 @@ def verify_otp(customer, code):
     return otp
 
 
+def next_route_for(customer):
+    """Where the app goes after sign-in. Without a plot, KYC Step 1 comes first, then a wait for admin to assign one."""
+    if customer.assigned_plot_id is None:
+        submission = getattr(customer, "kyc_submission", None)
+        return "awaiting_plot" if submission and submission.step1_submitted_at else "kyc_step1"
+    return next_route_for_status(customer.kyc_status)
+
+
 def next_route_for_status(kyc_status):
     return {
         Customer.KYCStatus.NOT_STARTED: "onboarding",
@@ -111,7 +143,7 @@ def customer_delete_blockers(customer):
     if customer.payment_proofs.exists():
         reasons.append("has submitted payments")
     kyc = getattr(customer, "kyc_submission", None)
-    if kyc is not None and (kyc.step2_status or kyc.step3_status):
+    if kyc is not None and (kyc.step1_submitted_at or kyc.step2_status or kyc.step3_status):
         reasons.append("has submitted KYC")
     if customer.tickets.exists():
         reasons.append("has support tickets")

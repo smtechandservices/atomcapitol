@@ -210,7 +210,7 @@ def _proof_entries(milestone, proof, amount):
         {
             "payment_by": proof.payment_mode or milestone.payment_mode,
             "payment_date": milestone.paid_date or proof.payment_date,
-            "bank": "",
+            "bank": milestone.bank,
             "reference": milestone.transaction_reference or proof.transaction_reference,
             "amount": amount,
         }

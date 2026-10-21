@@ -3,7 +3,7 @@
 import { useState, type ReactNode } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, CalendarDays, Check, Copy, LandPlot, Lock, LogIn, Mail, MapPin, Pencil, Phone, Plus, Trash2, UserRound } from 'lucide-react'
+import { ArrowLeft, CalendarDays, Check, Copy, IdCard, LandPlot, Lock, LogIn, Mail, MapPin, Pencil, Phone, Plus, Trash2, UserRound } from 'lucide-react'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Card, CardHeader, CardBody } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -17,14 +17,17 @@ import { apiErrorMessage } from '@/lib/api'
 import { absoluteMediaUrl, formatAge, formatCurrency, formatDate, formatDateTime } from '@/lib/format'
 import { useCustomer, useUpdateCustomer } from './api'
 import { useMilestones } from '@/features/payments/api'
+import { BookingPendingPill, bookingInstalmentPending, bookingPendingHint } from '@/features/payments/milestoneStatus'
 import { useDocuments } from '@/features/documents/api'
 import { FileActions } from '@/components/ui/FileActions'
 import { useTickets } from '@/features/tickets/api'
 import { useAllSalesPeople, useSalesPerson } from '@/features/sales/api'
 import { useAssignToPlot } from '@/features/plots/api'
+import { useAllProjects } from '@/features/projects/api'
 import { useCan } from '@/lib/permissions'
 import { DeleteCustomerModal } from './DeleteCustomerModal'
 import { AccountControls } from './AccountControls'
+import { NewTag } from './CustomersPage'
 import { AssignPlotFields, assignPlotReady, emptyAssignPlot, toAssignPayload, type AssignPlotValue } from '@/features/plots/AssignPlotFields'
 
 export function CustomerDetailPage() {
@@ -50,6 +53,7 @@ export function CustomerDetailPage() {
   const [assignOpen, setAssignOpen] = useState(false)
   const [assign, setAssign] = useState<AssignPlotValue>(emptyAssignPlot)
   const assignToPlot = useAssignToPlot()
+  const { data: projects } = useAllProjects(canPlots)
   const [form, setForm] = useState({ name: '', phone: '', address: '' })
   const [pickingSales, setPickingSales] = useState(false)
   const [salesChoice, setSalesChoice] = useState('')
@@ -100,6 +104,16 @@ export function CustomerDetailPage() {
     setPickingSales(true)
   }
 
+  const claim = customer.claimed_plot
+
+  const openAssign = () => {
+    // Start on the project the customer named, when it matches a listed one
+    const named = claim?.project.trim().toLowerCase()
+    const match = named ? projects?.find((p) => p.name.trim().toLowerCase() === named) : undefined
+    setAssign({ ...emptyAssignPlot, project: match ? String(match.id) : '' })
+    setAssignOpen(true)
+  }
+
   const closeAssign = () => {
     setAssignOpen(false)
     setAssign(emptyAssignPlot)
@@ -124,7 +138,12 @@ export function CustomerDetailPage() {
       <PageHeader
         title={customer.name || customer.email}
         subtitle={customer.email}
-        actions={<Badge>{customer.kyc_status}</Badge>}
+        actions={
+          <div className="flex items-center gap-2">
+            {claim && <NewTag />}
+            <Badge>{customer.kyc_status}</Badge>
+          </div>
+        }
       />
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
@@ -230,9 +249,25 @@ export function CustomerDetailPage() {
               {!customer.plot ? (
                 <EmptyState title="No plot assigned" />
               ) : (milestones.data?.results.length ?? 0) === 0 ? (
-                <EmptyState title="No milestones generated yet" />
+                <EmptyState title="No milestones yet" subtitle="The schedule is generated when the booking receipt (KYC Step 2) is approved." />
               ) : (
                 <ul className="divide-y divide-ink-100">
+                  {bookingInstalmentPending(milestones.data?.results ?? []) && (
+                    <li className="flex items-center justify-between px-5 py-3 text-sm">
+                      <div>
+                        <p className="font-medium text-ink-500">Instalment 1</p>
+                        <p className="text-xs text-ink-400">{bookingPendingHint(customer.booking_payment)}</p>
+                      </div>
+                      <div className="flex flex-col items-end gap-1">
+                        {customer.booking_payment ? (
+                          <p className="font-medium text-ink-500">{formatCurrency(customer.booking_payment.amount)}</p>
+                        ) : (
+                          <p className="font-medium text-ink-300">—</p>
+                        )}
+                        <BookingPendingPill />
+                      </div>
+                    </li>
+                  )}
                   {milestones.data?.results.map((m) => (
                     <li key={m.id} className="flex items-center justify-between px-5 py-3 text-sm">
                       <div>
@@ -301,15 +336,51 @@ export function CustomerDetailPage() {
                   <Info label="Role" value={customer.plot_role ?? '—'} />
                   <Info label="Status" value={<Badge>{customer.plot.status}</Badge>} />
                 </dl>
+              ) : claim ? (
+                <div className="space-y-3">
+                  <div className="rounded-lg bg-gold-50 px-3 py-2.5 ring-1 ring-gold-200">
+                    <p className="text-xs text-gold-800">Customer says they bought</p>
+                    <p className="mt-0.5 text-sm font-semibold text-ink-800">
+                      Plot {claim.plot_number} · {claim.project}
+                    </p>
+                    <p className="mt-1 text-xs text-ink-500">
+                      Typed in the app on {formatDate(claim.submitted_at)}. Check it against your records, then assign the matching listed plot to
+                      unlock KYC steps 2 and 3.
+                    </p>
+                  </div>
+                  <ul className="divide-y divide-ink-100 rounded-lg border border-ink-100">
+                    {(
+                      [
+                        ['Aadhaar (front)', claim.aadhaar_front],
+                        ['Aadhaar (back)', claim.aadhaar_back],
+                        ['PAN card', claim.pan_card],
+                      ] as const
+                    ).map(([label, path]) => (
+                      <li key={label} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+                        <span className="flex items-center gap-2 text-ink-600">
+                          <IdCard className="size-4 text-ink-300" /> {label}
+                        </span>
+                        {path ? <FileActions path={path} label={label} /> : <span className="text-xs text-ink-300">Not uploaded</span>}
+                      </li>
+                    ))}
+                  </ul>
+                  {canPlots && (
+                    <Button size="sm" variant="secondary" className="w-full" onClick={openAssign}>
+                      <Plus className="size-3.5" /> Assign plot
+                    </Button>
+                  )}
+                </div>
               ) : (
                 <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-ink-200 px-4 py-6 text-center">
                   <LandPlot className="size-6 text-ink-300" />
                   <p className="text-sm font-medium text-ink-600">No plot assigned</p>
                   <p className="text-xs text-ink-400">
-                    {customer.is_active ? 'Assigning a plot gives this email app access.' : 'App access is revoked until a plot is assigned.'}
+                    {customer.is_active
+                      ? 'They can sign in, but KYC needs a plot. Without one the app asks them for their plot details first.'
+                      : 'App access is revoked. Assign a plot to restore it, or they can sign up again in the app as a new customer.'}
                   </p>
                   {canPlots && (
-                    <Button size="sm" variant="secondary" className="mt-1" onClick={() => setAssignOpen(true)}>
+                    <Button size="sm" variant="secondary" className="mt-1" onClick={openAssign}>
                       <Plus className="size-3.5" /> Assign plot
                     </Button>
                   )}
@@ -465,6 +536,11 @@ export function CustomerDetailPage() {
           </>
         }
       >
+        {claim && (
+          <p className="mb-4 rounded-lg bg-gold-50 px-3 py-2 text-xs text-gold-900 ring-1 ring-gold-200">
+            Customer says: plot <span className="font-semibold">{claim.plot_number}</span> in <span className="font-semibold">{claim.project}</span>
+          </p>
+        )}
         <AssignPlotFields value={assign} onChange={setAssign} />
       </Modal>
     </div>

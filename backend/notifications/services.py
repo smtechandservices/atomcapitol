@@ -28,7 +28,7 @@ def resolve_recipients(campaign):
     from accounts.models import Customer
 
     if campaign.target_type == NotificationCampaign.TargetType.ALL:
-        return Customer.objects.filter(is_active=True)
+        return Customer.objects.on_record().filter(is_active=True)
     if campaign.target_type == NotificationCampaign.TargetType.PROJECT:
         return Customer.objects.filter(is_active=True, assigned_plot__project=campaign.target_project)
     return campaign.target_customers.filter(is_active=True)

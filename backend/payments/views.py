@@ -54,7 +54,7 @@ class CustomerPaymentsView(APIView):
         if status_filter:
             milestones = milestones.filter(status=status_filter.upper())
 
-        paid_total = plot.milestones.filter(status=Milestone.Status.PAID).aggregate(t=Sum("amount"))["t"] or 0
+        paid_total = (plot.milestones.filter(status=Milestone.Status.PAID).aggregate(t=Sum("amount"))["t"] or 0) + services.outside_app_collected(plot)
         remaining_qs = plot.milestones.exclude(status=Milestone.Status.PAID)
         next_due = plot.milestones.filter(status__in=[Milestone.Status.DUE, Milestone.Status.OVERDUE]).order_by("due_date").first()
 
@@ -97,7 +97,6 @@ class CustomerPayMilestoneView(APIView):
                 claimed_amount=data["claimed_amount"],
                 payment_date=data["payment_date"],
                 payment_mode=data.get("payment_mode", ""),
-                transaction_reference=data.get("transaction_reference", ""),
             )
         except services.PaymentError as exc:
             return Response({"detail": exc.message, "errors": {"code": exc.code}}, status=status.HTTP_400_BAD_REQUEST)
@@ -283,8 +282,16 @@ class ApprovePaymentProofView(APIView):
             raise NotFound("Proof not found.")
         serializer = ApprovePaymentProofSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
         try:
-            services.approve_payment_proof(proof, request.user, schedule=serializer.validated_data.get("schedule"))
+            services.approve_payment_proof(
+                proof,
+                request.user,
+                bank=data["bank"],
+                transaction_reference=data["transaction_reference"],
+                payment_mode=data.get("payment_mode") or None,
+                schedule=data.get("schedule"),
+            )
         except services.PaymentError as exc:
             return Response({"detail": exc.message, "errors": {"code": exc.code}}, status=status.HTTP_400_BAD_REQUEST)
         return Response(PaymentVerificationQueueSerializer(proof_queryset().get(pk=proof.pk)).data)

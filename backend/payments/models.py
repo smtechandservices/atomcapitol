@@ -27,6 +27,8 @@ class Milestone(TimeStampedModel):
 
     paid_date = models.DateField(null=True, blank=True)
     payment_mode = models.CharField(max_length=50, blank=True)
+    # Bank and transaction reference are entered by the admin when approving (they print on the receipt).
+    bank = models.CharField(max_length=100, blank=True)
     transaction_reference = models.CharField(max_length=100, blank=True)
     admin_remarks = models.TextField(blank=True)
 
@@ -52,6 +54,7 @@ class PaymentProof(TimeStampedModel):
     claimed_amount = models.DecimalField(max_digits=14, decimal_places=2)
     payment_date = models.DateField()
     payment_mode = models.CharField(max_length=50, blank=True)
+    # Entered by the admin on approval. Customers used to type it in, so older proofs have theirs.
     transaction_reference = models.CharField(max_length=100, blank=True)
 
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)

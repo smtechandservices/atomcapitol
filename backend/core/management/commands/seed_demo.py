@@ -241,8 +241,10 @@ class Command(BaseCommand):
             claimed_amount=milestone.amount,
             payment_date=min(milestone.due_date, date.today()),
             payment_mode="NEFT",
-            transaction_reference=ref,
         )
+
+    def _approve(self, proof, *, ref):
+        return pay_services.approve_payment_proof(proof, self.admin, bank="HDFC Bank", transaction_reference=ref)
 
     def _customers(self):
         c = {}
@@ -284,8 +286,7 @@ class Command(BaseCommand):
         ms = list(c["active"].assigned_plot.milestones.filter(sequence__gte=2).order_by("sequence"))
         for i, m in enumerate(ms[:3]):
             m.refresh_from_db()
-            proof = self._proof(m, c["active"], ref=f"NEFT-RK-{1000 + i}")
-            pay_services.approve_payment_proof(proof, self.admin)
+            self._approve(self._proof(m, c["active"], ref=f"NEFT-RK-{1000 + i}"), ref=f"NEFT-RK-{1000 + i}")
         ms[3].refresh_from_db()
         self._proof(ms[3], c["active"], ref="NEFT-RK-1003")
 
@@ -336,7 +337,7 @@ class Command(BaseCommand):
         self._approve_kyc(c["done"])
         for i, m in enumerate(c["done"].assigned_plot.milestones.filter(sequence__gte=2).order_by("sequence")):
             m.refresh_from_db()
-            pay_services.approve_payment_proof(self._proof(m, c["done"], ref=f"RTGS-TD-{i}"), self.admin)
+            self._approve(self._proof(m, c["done"], ref=f"RTGS-TD-{i}"), ref=f"RTGS-TD-{i}")
         plot = c["done"].assigned_plot
         plot.status = Plot.Status.SOLD
         plot.save()

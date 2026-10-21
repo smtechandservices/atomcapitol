@@ -23,7 +23,7 @@ import {
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Card, StatCard } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
-import { Input, Select, Textarea } from '@/components/ui/Field'
+import { FieldWrap, Input, Select, Textarea } from '@/components/ui/Field'
 import { FilePreview } from '@/components/ui/FilePreview'
 import { FullPageSpinner } from '@/components/ui/Spinner'
 import { EmptyState, ErrorState } from '@/components/ui/EmptyState'
@@ -40,6 +40,7 @@ import {
   usePaymentVerificationStats,
   useRejectPaymentProof,
   type PaymentQueueFilters,
+  type ProofReceiptDetails,
 } from './api'
 import { buildPaymentProposal, scheduleTotal } from './changeProposal'
 import { MilestonePill } from './milestoneStatus'
@@ -379,7 +380,16 @@ function ReviewPanel({ proof: p, onDecided, onOpenSchedule }: { proof: PaymentPr
         <Info label="Claimed amount" value={formatCurrency(p.claimed_amount)} />
         <Info label="Payment date" value={formatDate(p.payment_date)} />
         <Info label="Mode" value={p.payment_mode || '—'} />
-        <Info label="Reference" value={p.transaction_reference ? <span className="break-all font-mono text-xs">{p.transaction_reference}</span> : '—'} />
+        <Info
+          label="Transaction ID"
+          value={
+            p.transaction_reference ? (
+              <span className="break-all font-mono text-xs">{p.transaction_reference}</span>
+            ) : (
+              <span className="text-xs font-normal text-ink-400">{p.status === 'PENDING' ? 'You enter it when approving' : '—'}</span>
+            )
+          }
+        />
       </dl>
       <p className="text-xs text-ink-400">Submitted {formatDateTime(p.created_at)}</p>
 
@@ -416,6 +426,9 @@ function DecisionArea({ proof: p, onDecided }: { proof: PaymentProofQueueItem; o
   const [draft, setDraft] = useState<ScheduleItem[]>([])
   const [warning, setWarning] = useState<string | undefined>()
   const [reason, setReason] = useState('')
+  // Older proofs carry the customer's own reference; new ones leave it to the admin.
+  const [receipt, setReceipt] = useState<ProofReceiptDetails>({ payment_mode: p.payment_mode, bank: '', transaction_reference: p.transaction_reference })
+  const receiptReady = !!(receipt.payment_mode.trim() && receipt.bank.trim() && receipt.transaction_reference.trim())
 
   const proposal = mismatch && !scheduleLoading ? buildPaymentProposal(p, schedule) : null
   const remaining = proposal?.remaining ?? 0
@@ -434,7 +447,7 @@ function DecisionArea({ proof: p, onDecided }: { proof: PaymentProofQueueItem; o
 
   const doApprove = async (newSchedule?: ScheduleItem[]) => {
     try {
-      await approve.mutateAsync(newSchedule)
+      await approve.mutateAsync({ receipt, schedule: newSchedule })
       toast.success(newSchedule ? 'Payment approved — schedule updated and receipt generated' : 'Payment approved — receipt generated')
       onDecided()
     } catch (err) {
@@ -510,7 +523,12 @@ function DecisionArea({ proof: p, onDecided }: { proof: PaymentProofQueueItem; o
           <Button variant="ghost" onClick={() => setReviewing(false)}>
             Back
           </Button>
-          <Button variant="secondary" loading={approve.isPending} disabled={busy || overpaidBalance || !draftValid || !totalMatches} onClick={() => doApprove(draft)}>
+          <Button
+            variant="secondary"
+            loading={approve.isPending}
+            disabled={busy || overpaidBalance || !draftValid || !totalMatches || !receiptReady}
+            onClick={() => doApprove(draft)}
+          >
             <CheckCircle2 className="size-4" /> Approve &amp; update schedule
           </Button>
         </div>
@@ -522,6 +540,29 @@ function DecisionArea({ proof: p, onDecided }: { proof: PaymentProofQueueItem; o
     <div className="grid grid-cols-1 gap-4 border-t border-ink-100 pt-5 xl:grid-cols-2">
       <div className="space-y-3 rounded-lg border border-ink-100 p-4">
         <p className="text-sm font-semibold text-ink-800">Approve</p>
+        <div className="space-y-2 rounded-lg bg-ink-50/60 p-3">
+          <p className="text-xs text-ink-500">Check the credit on your bank statement. These print on the receipt.</p>
+          <div className="grid grid-cols-2 gap-2">
+            <FieldWrap label="Payment by" required>
+              <Input list="proof-payment-modes" value={receipt.payment_mode} onChange={(e) => setReceipt({ ...receipt, payment_mode: e.target.value })} />
+            </FieldWrap>
+            <FieldWrap label="Bank" required>
+              <Input value={receipt.bank} placeholder="e.g. SBI Bank" onChange={(e) => setReceipt({ ...receipt, bank: e.target.value })} />
+            </FieldWrap>
+          </div>
+          <FieldWrap label="Txn ID / Chq. no." required>
+            <Input
+              value={receipt.transaction_reference}
+              placeholder="UTR, UPI ref or cheque no."
+              onChange={(e) => setReceipt({ ...receipt, transaction_reference: e.target.value })}
+            />
+          </FieldWrap>
+          <datalist id="proof-payment-modes">
+            {['UPI', 'NEFT', 'RTGS', 'IMPS', 'Cheque', 'Cash'].map((m) => (
+              <option key={m} value={m} />
+            ))}
+          </datalist>
+        </div>
         {mismatch ? (
           <>
             <p className="text-xs text-ink-400">
@@ -533,14 +574,20 @@ function DecisionArea({ proof: p, onDecided }: { proof: PaymentProofQueueItem; o
                 More than the whole outstanding balance — approval is blocked.
               </p>
             )}
-            <Button variant="secondary" className="w-full" loading={scheduleLoading} disabled={busy || scheduleLoading || overpaidBalance} onClick={startReview}>
+            <Button
+              variant="secondary"
+              className="w-full"
+              loading={scheduleLoading}
+              disabled={busy || scheduleLoading || overpaidBalance || !receiptReady}
+              onClick={startReview}
+            >
               <ListOrdered className="size-4" /> Review &amp; accept new milestones
             </Button>
           </>
         ) : (
           <>
             <p className="text-xs text-ink-400">Marks the milestone paid for {formatCurrency(p.claimed_amount)} and issues a receipt.</p>
-            <Button variant="secondary" className="w-full" loading={approve.isPending} disabled={busy} onClick={() => doApprove()}>
+            <Button variant="secondary" className="w-full" loading={approve.isPending} disabled={busy || !receiptReady} onClick={() => doApprove()}>
               <CheckCircle2 className="size-4" /> Approve payment
             </Button>
           </>

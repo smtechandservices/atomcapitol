@@ -10,7 +10,7 @@ from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from core.permissions import IsCustomerUser, role_required
+from core.permissions import IsCustomerUser, IsCustomerWithPlot, role_required
 from projects.serializers import CustomerPlotDetailSerializer
 
 from . import services
@@ -20,6 +20,7 @@ from .serializers import (
     KYCQueueDetailSerializer,
     KYCQueueListSerializer,
     KYCStatusSerializer,
+    KYCStep1Serializer,
     KYCStep2Serializer,
     KYCStep3Serializer,
 )
@@ -28,6 +29,25 @@ from .serializers import (
 # ---------------------------------------------------------------------------
 # CustomerApp — onboarding
 # ---------------------------------------------------------------------------
+class KYCStep1View(APIView):
+    """KYC Step 1 — only for customers without a plot: name, phone, the plot they bought, Aadhaar / PAN."""
+
+    permission_classes = [IsCustomerUser]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request):
+        if request.user.assigned_plot_id is not None:
+            return Response(
+                {"detail": "Your plot is already assigned. Continue with the next KYC step.", "errors": {"code": "plot_already_assigned"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        existing = KYCSubmission.objects.filter(customer=request.user).first()
+        serializer = KYCStep1Serializer(data=request.data, context={"submission": existing})
+        serializer.is_valid(raise_exception=True)
+        submission = services.submit_step1(request.user, **serializer.validated_data)
+        return Response(KYCStatusSerializer(submission).data, status=status.HTTP_201_CREATED)
+
+
 class KYCPlotCheckView(APIView):
     """4.4 Plot Details Check (Step 2a)."""
 
@@ -43,7 +63,7 @@ class KYCPlotCheckView(APIView):
 class KYCStep2View(APIView):
     """4.5 First Payment Receipt Upload (Step 2b), plus plot confirmation and Aadhaar / PAN images."""
 
-    permission_classes = [IsCustomerUser]
+    permission_classes = [IsCustomerWithPlot]
     parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request):
@@ -68,7 +88,7 @@ class KYCStep2View(APIView):
 class KYCStep3View(APIView):
     """4.6 Video KYC (Step 3) — in-app live recording only."""
 
-    permission_classes = [IsCustomerUser]
+    permission_classes = [IsCustomerWithPlot]
     parser_classes = [MultiPartParser, FormParser]
 
     def get(self, request):

@@ -51,3 +51,12 @@ class IsKYCApproved(BasePermission):
         if not (user and user.is_authenticated and getattr(user, "actor_type", None) == "customer"):
             return False
         return user.kyc_status == "APPROVED"
+
+
+class IsCustomerWithPlot(IsCustomerUser):
+    """KYC Steps 2-3 need a plot: customers who signed up themselves wait for admin to assign one after Step 1."""
+
+    message = "Your plot hasn't been assigned yet. We'll notify you once our team assigns it."
+
+    def has_permission(self, request, view):
+        return super().has_permission(request, view) and request.user.assigned_plot_id is not None

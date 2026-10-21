@@ -162,12 +162,22 @@ class AdminUserSerializer(serializers.ModelSerializer):
 # ---------------------------------------------------------------------------
 # Admin Portal — 7.5/7.6/7.7 Customers
 # ---------------------------------------------------------------------------
+def _step1(customer):
+    """The submitted KYC Step 1 (claimed plot + ID) of a customer without a plot, or None."""
+    submission = getattr(customer, "kyc_submission", None)
+    if customer.assigned_plot_id is not None or not (submission and submission.step1_submitted_at):
+        return None
+    return submission
+
+
 class CustomerListSerializer(serializers.ModelSerializer):
     plot_id = serializers.IntegerField(source="assigned_plot_id", default=None, read_only=True)
     project_name = serializers.CharField(source="assigned_plot.project.name", default=None, read_only=True)
     plot_number = serializers.CharField(source="assigned_plot.plot_number", default=None, read_only=True)
     sales_person_name = serializers.CharField(source="assigned_sales_person.name", default=None, read_only=True)
     sales_person_id = serializers.IntegerField(source="assigned_sales_person_id", default=None, read_only=True)
+    # Set while a new customer waits for admin to assign a plot ("New customer" tag): {project, plot_number}.
+    claimed_plot = serializers.SerializerMethodField()
 
     class Meta:
         model = Customer
@@ -176,6 +186,7 @@ class CustomerListSerializer(serializers.ModelSerializer):
             "name",
             "email",
             "phone",
+            "claimed_plot",
             "plot_id",
             "project_name",
             "plot_number",
@@ -186,6 +197,10 @@ class CustomerListSerializer(serializers.ModelSerializer):
             "sales_person_id",
             "created_at",
         ]
+
+    def get_claimed_plot(self, obj):
+        step1 = _step1(obj)
+        return {"project": step1.claimed_project, "plot_number": step1.claimed_plot_number} if step1 else None
 
 
 class CustomerAdminCreateSerializer(serializers.ModelSerializer):
@@ -203,6 +218,8 @@ class CustomerAdminCreateSerializer(serializers.ModelSerializer):
 
 class CustomerAdminDetailSerializer(serializers.ModelSerializer):
     plot = serializers.SerializerMethodField()
+    claimed_plot = serializers.SerializerMethodField()
+    booking_payment = serializers.SerializerMethodField()
     sales_person_id = serializers.IntegerField(source="assigned_sales_person_id", read_only=True)
 
     class Meta:
@@ -215,15 +232,40 @@ class CustomerAdminDetailSerializer(serializers.ModelSerializer):
             "address",
             "kyc_status",
             "is_active",
+            "is_self_registered",
+            "claimed_plot",
             "plot",
             "plot_role",
+            "booking_payment",
             "assigned_sales_person",
             "sales_person_id",
             "created_at",
             "updated_at",
             "last_login_at",
         ]
-        read_only_fields = ["id", "email", "kyc_status", "plot", "plot_role", "created_at", "updated_at", "last_login_at"]
+        read_only_fields = ["id", "email", "kyc_status", "is_self_registered", "plot", "plot_role", "created_at", "updated_at", "last_login_at"]
+
+    def get_booking_payment(self, obj):
+        """Stand-in for instalment 1 until KYC Step 2 approval records it: {amount, source, step2_status} or None."""
+        from payments.services import pending_booking_payment
+
+        if not obj.assigned_plot:
+            return None
+        booking = pending_booking_payment(obj.assigned_plot)
+        return booking and {**booking, "amount": str(booking["amount"])}
+
+    def get_claimed_plot(self, obj):
+        """KYC Step 1 of a new customer waiting for a plot: what they typed, plus their ID files to check it against."""
+        step1 = _step1(obj)
+        if not step1:
+            return None
+        files = {f: getattr(step1, f).url if getattr(step1, f) else None for f in ("aadhaar_front", "aadhaar_back", "pan_card")}
+        return {
+            "project": step1.claimed_project,
+            "plot_number": step1.claimed_plot_number,
+            "submitted_at": step1.step1_submitted_at,
+            **files,
+        }
 
     def get_plot(self, obj):
         if not obj.assigned_plot:

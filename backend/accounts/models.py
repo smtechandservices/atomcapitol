@@ -6,6 +6,7 @@ from django.conf import settings
 from django.contrib.auth.base_user import AbstractBaseUser, BaseUserManager
 from django.contrib.auth.models import PermissionsMixin
 from django.db import models
+from django.db.models import Q
 from django.utils import timezone
 
 from core.models import TimeStampedModel
@@ -70,8 +71,17 @@ class AdminUser(AbstractBaseUser, PermissionsMixin):
         return self.role in roles or self.role == self.Role.SUPER_ADMIN
 
 
+class CustomerQuerySet(models.QuerySet):
+    def on_record(self):
+        """Admin-created customers, plus app sign-ups once they've submitted KYC Step 1. Before that a sign-up
+        is just an email someone typed on the login screen, so it stays out of admin lists and campaigns."""
+        return self.filter(Q(is_self_registered=False) | Q(kyc_submission__step1_submitted_at__isnull=False))
+
+
 class Customer(TimeStampedModel):
-    """A plot buyer. Nobody self-registers: a record only exists once admin creates/assigns one (7.4, 7.6)."""
+    """A plot buyer. Created by admin (7.4, 7.6), or by signing in to the app with an unknown email: such a
+    self-registered customer submits KYC Step 1 (claimed plot + ID) and waits for admin to assign a plot.
+    """
 
     class KYCStatus(models.TextChoices):
         NOT_STARTED = "NOT_STARTED", "Not started"
@@ -104,12 +114,16 @@ class Customer(TimeStampedModel):
     is_active = models.BooleanField(
         default=True, help_text="Set False when a plot is unassigned/transferred away from this email."
     )
+    # Hidden from the admin customers list until they submit KYC Step 1.
+    is_self_registered = models.BooleanField(default=False)
 
     notify_email = models.BooleanField(default=True)
     notify_push = models.BooleanField(default=True)
     language = models.CharField(max_length=10, default="en")
 
     last_login_at = models.DateTimeField(null=True, blank=True)
+
+    objects = CustomerQuerySet.as_manager()
 
     class Meta:
         indexes = [models.Index(fields=["email"]), models.Index(fields=["kyc_status"])]

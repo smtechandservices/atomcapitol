@@ -142,11 +142,18 @@ export interface SalesPerson {
 // ---------------------------------------------------------------------------
 // Customers
 // ---------------------------------------------------------------------------
+/** The plot a new (self-registered) customer says they bought, as typed in KYC Step 1. Set until a plot is assigned. */
+export interface ClaimedPlot {
+  project: string
+  plot_number: string
+}
+
 export interface CustomerListItem {
   id: number
   name: string
   email: string
   phone: string
+  claimed_plot: ClaimedPlot | null
   plot_id: number | null
   project_name: string | null
   plot_number: string | null
@@ -156,6 +163,13 @@ export interface CustomerListItem {
   sales_person_name: string | null
   sales_person_id: number | null
   created_at: string
+}
+
+/** Instalment 1 before it's recorded: the buyer's KYC receipt amount, else the amount paid outside the app. */
+export interface BookingPayment {
+  amount: string
+  source: 'receipt' | 'outside_app'
+  step2_status: KYCStepStatus | null
 }
 
 export interface CustomerPlotSummary {
@@ -175,8 +189,13 @@ export interface CustomerDetail {
   address: string
   kyc_status: CustomerKYCStatus
   is_active: boolean
+  /** Signed up from the app rather than added by an admin. */
+  is_self_registered: boolean
+  claimed_plot: (ClaimedPlot & { submitted_at: string; aadhaar_front: string | null; aadhaar_back: string | null; pan_card: string | null }) | null
   plot: CustomerPlotSummary | null
   plot_role: PlotRole | null
+  /** Expected instalment 1 until KYC Step 2 approval records it; null once it exists. */
+  booking_payment: BookingPayment | null
   assigned_sales_person: number | null
   sales_person_id: number | null
   created_at: string
@@ -286,6 +305,7 @@ export interface Milestone {
   status: MilestoneStatus
   paid_date: string | null
   payment_mode: string
+  bank: string
   transaction_reference: string
   admin_remarks: string
 }

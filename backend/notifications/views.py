@@ -133,7 +133,7 @@ class NotificationCampaignViewSet(viewsets.ModelViewSet):
                 "drafts": qs.filter(status=NotificationCampaign.CampaignStatus.DRAFT).count(),
                 "sent": sent.count(),
                 "delivered": sent.aggregate(t=Sum("recipient_count"))["t"] or 0,
-                "reachable": Customer.objects.filter(is_active=True).count(),
+                "reachable": Customer.objects.on_record().filter(is_active=True).count(),
                 "last_sent_at": sent.order_by("-sent_at").values_list("sent_at", flat=True).first(),
             }
         )

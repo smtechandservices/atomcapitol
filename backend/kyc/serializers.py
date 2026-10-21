@@ -17,6 +17,33 @@ class KYCPlotCheckSerializer(serializers.Serializer):
     plot = CustomerPlotDetailSerializer()
 
 
+def _missing_identity_files(attrs, submission):
+    """Aadhaar front + PAN are required unless already on record (a resubmission, or uploaded in Step 1)."""
+    return {
+        field: "This file is required."
+        for field in ("aadhaar_front", "pan_card")
+        if not attrs.get(field) and not (submission and getattr(submission, field))
+    }
+
+
+class KYCStep1Serializer(serializers.Serializer):
+    """Step 1 for customers without a plot: who they are, the plot they bought (as typed), and their ID."""
+
+    name = serializers.CharField(max_length=200)
+    phone = serializers.CharField(max_length=20)
+    claimed_project = serializers.CharField(max_length=200)
+    claimed_plot_number = serializers.CharField(max_length=50)
+    aadhaar_front = serializers.FileField(required=False, validators=[validate_identity_file])
+    aadhaar_back = serializers.FileField(required=False, validators=[validate_identity_file])
+    pan_card = serializers.FileField(required=False, validators=[validate_identity_file])
+
+    def validate(self, attrs):
+        missing = _missing_identity_files(attrs, self.context.get("submission"))
+        if missing:
+            raise serializers.ValidationError(missing)
+        return attrs
+
+
 class KYCStep2Serializer(serializers.Serializer):
     plot_confirmed = serializers.BooleanField()
     plot_mismatch_note = serializers.CharField(required=False, allow_blank=True, default="")
@@ -28,13 +55,7 @@ class KYCStep2Serializer(serializers.Serializer):
     pan_card = serializers.FileField(required=False, validators=[validate_identity_file])
 
     def validate(self, attrs):
-        # Required on the first submission; a resubmission after rejection may keep the files already on record.
-        submission = self.context.get("submission")
-        missing = {
-            field: "This file is required."
-            for field in ("aadhaar_front", "pan_card")
-            if not attrs.get(field) and not (submission and getattr(submission, field))
-        }
+        missing = _missing_identity_files(attrs, self.context.get("submission"))
         if missing:
             raise serializers.ValidationError(missing)
         return attrs
@@ -46,11 +67,18 @@ class KYCStep3Serializer(serializers.Serializer):
 
 class KYCStatusSerializer(serializers.ModelSerializer):
     kyc_status = serializers.CharField(source="customer.kyc_status", read_only=True)
+    plot_assigned = serializers.SerializerMethodField()
+    next_route = serializers.SerializerMethodField()
 
     class Meta:
         model = KYCSubmission
         fields = [
             "kyc_status",
+            "plot_assigned",
+            "next_route",
+            "claimed_project",
+            "claimed_plot_number",
+            "step1_submitted_at",
             "plot_confirmed",
             "plot_mismatch_note",
             "receipt_amount",
@@ -66,6 +94,14 @@ class KYCStatusSerializer(serializers.ModelSerializer):
             "step3_rejection_reason",
             "step3_submitted_at",
         ]
+
+    def get_plot_assigned(self, obj):
+        return obj.customer.assigned_plot_id is not None
+
+    def get_next_route(self, obj):
+        from accounts.services import next_route_for
+
+        return next_route_for(obj.customer)
 
 
 # ---------------------------------------------------------------------------
@@ -185,8 +221,8 @@ class KYCQueueDetailSerializer(serializers.ModelSerializer):
 class ReceiptEntrySerializer(serializers.Serializer):
     payment_by = serializers.CharField(max_length=50)
     payment_date = serializers.DateField()
-    bank = serializers.CharField(max_length=100, required=False, allow_blank=True, default="")
-    reference = serializers.CharField(max_length=100, required=False, allow_blank=True, default="")
+    bank = serializers.CharField(max_length=100)
+    reference = serializers.CharField(max_length=100)
     amount = serializers.DecimalField(max_digits=14, decimal_places=2, min_value=Decimal("0.01"))
 
 

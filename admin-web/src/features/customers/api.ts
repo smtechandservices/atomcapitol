@@ -8,6 +8,8 @@ export interface CustomerFilters {
   kyc_status?: string
   is_active?: string
   assigned_plot__isnull?: string
+  /** 'false' with assigned_plot__isnull 'true': new customers waiting for a plot. */
+  kyc_submission__step1_submitted_at__isnull?: string
   assigned_sales_person?: string | number
   assigned_sales_person__isnull?: string
 }
@@ -34,6 +36,7 @@ export function useCustomerCounts() {
         approved: { kyc_status: 'APPROVED' },
         rejected: { kyc_status: 'REJECTED' },
         noPlot: { assigned_plot__isnull: 'true' },
+        newCustomers: { assigned_plot__isnull: 'true', kyc_submission__step1_submitted_at__isnull: 'false' },
       }
       const entries = await Promise.all(
         Object.entries(filters).map(async ([key, params]) => {

@@ -17,13 +17,19 @@ class KYCSubmission(TimeStampedModel):
 
     customer = models.OneToOneField("accounts.Customer", on_delete=models.CASCADE, related_name="kyc_submission")
 
+    # Step 1 — only for customers without a plot (self-registered): the plot they say they bought, as typed,
+    # plus the Aadhaar / PAN files below. Admin matches it to a listed plot and assigns it, which unlocks Step 2.
+    claimed_project = models.CharField(max_length=200, blank=True)
+    claimed_plot_number = models.CharField(max_length=50, blank=True)
+    step1_submitted_at = models.DateTimeField(null=True, blank=True)
+
     # Step 2 — plot confirmation + first payment receipt
     plot_confirmed = models.BooleanField(default=False)
     plot_mismatch_note = models.TextField(blank=True)
     receipt_file = models.FileField(upload_to="kyc/receipts/", null=True, blank=True, validators=[validate_receipt_file])
     receipt_amount = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
     receipt_payment_date = models.DateField(null=True, blank=True)
-    # Identity documents, uploaded with the receipt and reviewed as part of Step 2.
+    # Identity documents, uploaded with the receipt (or earlier, in Step 1) and reviewed as part of Step 2.
     # aadhaar_back is optional: an e-Aadhaar PDF carries both sides in one file.
     aadhaar_front = models.FileField(upload_to="kyc/identity/", null=True, blank=True, validators=[validate_identity_file])
     aadhaar_back = models.FileField(upload_to="kyc/identity/", null=True, blank=True, validators=[validate_identity_file])

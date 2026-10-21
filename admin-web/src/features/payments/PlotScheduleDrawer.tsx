@@ -15,9 +15,10 @@ import { absoluteMediaUrl, formatCurrency, formatDate, formatDateTime } from '@/
 import { FilePreview } from '@/components/ui/FilePreview'
 import { downloadDocument } from '@/features/documents/api'
 import { useGenerateSchedule, usePlot } from '@/features/plots/api'
+import { useCustomer } from '@/features/customers/api'
 import type { Milestone } from '@/types'
 import { useCreateMilestone, useDeleteMilestone, usePlotSchedule, useRegenerateReceipt, useUpdateMilestone } from './api'
-import { MilestonePill, dueHint, milestoneMeta } from './milestoneStatus'
+import { BookingPendingPill, MilestonePill, bookingInstalmentPending, bookingPendingHint, dueHint, milestoneMeta } from './milestoneStatus'
 
 const emptyForm = { sequence: 1, name: '', description: '', amount: '', due_date: '', admin_remarks: '' }
 type FormValues = typeof emptyForm
@@ -40,8 +41,18 @@ export function PlotScheduleDrawer({ plotId, onClose }: { plotId: number; onClos
 
   const milestones = schedule ?? []
   const primary = plot?.buyers.find((b) => b.plot_role === 'PRIMARY')
+  // The buyer's record carries the expected instalment 1 (KYC receipt or outside-app amount) until it's recorded
+  const { data: buyer } = useCustomer(primary && bookingInstalmentPending(schedule ?? []) ? String(primary.id) : undefined)
+  const outsideApp = Number(plot?.amount_paid_outside_app ?? 0)
+  // Falls back to the outside-app amount while the buyer's record (which knows about a KYC receipt) loads or isn't readable
+  const pendingBooking = buyer?.booking_payment ?? (outsideApp > 0 ? { amount: String(outsideApp), source: 'outside_app' as const, step2_status: null } : null)
   const total = Number(plot?.total_value ?? 0)
-  const paidOutside = Number(plot?.amount_paid_outside_app ?? 0)
+  // The booking money paid outside the app is what the KYC receipt records as paid instalment 1, so only the
+  // part not covered by it is planned separately (mirrors outside_app_not_scheduled on the backend)...
+  const booking = milestones.find((m) => m.sequence === 1 && m.status === 'PAID')
+  const outsideNotScheduled = Math.max(0, outsideApp - Number(booking?.amount ?? 0))
+  // ...and it only counts as collected once that receipt is approved (outside_app_collected).
+  const paidOutside = booking ? outsideNotScheduled : 0
   // plot.remaining_balance only nets off money paid outside the app, so derive from paid milestones here.
   const collected = paidOutside + milestones.filter((m) => m.status === 'PAID').reduce((sum, m) => sum + Number(m.amount), 0)
   const outstanding = Math.max(0, total - collected)
@@ -127,11 +138,13 @@ export function PlotScheduleDrawer({ plotId, onClose }: { plotId: number; onClos
             {milestones.length === 0 ? (
               <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-ink-200 px-4 py-10 text-center">
                 <CalendarClock className="size-7 text-ink-300" />
-                <p className="text-sm font-medium text-ink-600">No payment schedule yet</p>
+                <p className="text-sm font-medium text-ink-600">{primary && plot.total_value && plot.instalment_count ? 'Schedule starts after KYC' : 'No payment schedule yet'}</p>
                 <p className="max-w-xs text-xs text-ink-400">
-                  {plot.total_value && plot.instalment_count
-                    ? `Generate ${plot.instalment_count} instalments from the plot's total value, or add milestones one by one.`
-                    : 'Set the total value and instalment count when assigning the buyer to generate a schedule automatically.'}
+                  {primary && plot.total_value && plot.instalment_count
+                    ? `The ${plot.instalment_count} instalments are generated when the buyer's booking receipt (KYC Step 2) is approved, with instalment 2 due a month later. Generate now only to start the dates from today.`
+                    : plot.total_value && plot.instalment_count
+                      ? `Generate ${plot.instalment_count} instalments from the plot's total value, or add milestones one by one.`
+                      : 'Set the total value and instalment count when assigning the buyer to generate a schedule automatically.'}
                 </p>
                 <div className="mt-2 flex gap-2">
                   {plot.total_value && plot.instalment_count && (
@@ -148,7 +161,7 @@ export function PlotScheduleDrawer({ plotId, onClose }: { plotId: number; onClos
                         }
                       }}
                     >
-                      <Sparkles className="size-3.5" /> Generate schedule
+                      <Sparkles className="size-3.5" /> {primary ? 'Generate now' : 'Generate schedule'}
                     </Button>
                   )}
                   <Button size="sm" variant="outline" onClick={openCreate}>
@@ -158,6 +171,30 @@ export function PlotScheduleDrawer({ plotId, onClose }: { plotId: number; onClos
               </div>
             ) : (
               <ol className="relative space-y-2">
+                {bookingInstalmentPending(milestones) && (
+                  <li className="relative flex gap-3">
+                    <span className="absolute left-[13px] top-8 h-[calc(100%-16px)] w-px bg-ink-100" />
+                    <span className="relative z-10 flex size-7 shrink-0 items-center justify-center rounded-full border border-dashed border-ink-300 bg-white text-[11px] font-semibold text-ink-400 ring-4 ring-white">
+                      1
+                    </span>
+                    <div className="min-w-0 flex-1 rounded-lg border border-dashed border-ink-200 px-3 py-2.5">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium text-ink-600">
+                            Instalment 1{plot.instalment_count ? ` of ${plot.instalment_count}` : ''}
+                          </p>
+                          <p className="text-xs text-ink-400">{bookingPendingHint(pendingBooking)}</p>
+                        </div>
+                        <div className="flex shrink-0 flex-col items-end gap-1">
+                          <span className={clsx('text-sm font-semibold tabular-nums', pendingBooking ? 'text-ink-500' : 'text-ink-300')}>
+                            {pendingBooking ? formatCurrency(pendingBooking.amount) : '—'}
+                          </span>
+                          <BookingPendingPill />
+                        </div>
+                      </div>
+                    </div>
+                  </li>
+                )}
                 {milestones.map((m, i) => {
                   const meta = milestoneMeta(m.status)
                   const hint = dueHint(m)
@@ -188,7 +225,7 @@ export function PlotScheduleDrawer({ plotId, onClose }: { plotId: number; onClos
                         </div>
                         {(m.admin_remarks || m.transaction_reference) && (
                           <p className="mt-1.5 truncate text-xs text-ink-400">
-                            {m.transaction_reference && <>Ref {m.transaction_reference}</>}
+                            {m.transaction_reference && <>{m.bank && <>{m.bank} · </>}Ref {m.transaction_reference}</>}
                             {m.transaction_reference && m.admin_remarks && ' · '}
                             {m.admin_remarks}
                           </p>
@@ -243,10 +280,10 @@ export function PlotScheduleDrawer({ plotId, onClose }: { plotId: number; onClos
               </ol>
             )}
 
-            {milestones.length > 0 && total > 0 && Math.abs(scheduledTotal + paidOutside - total) > 1 && (
+            {milestones.length > 0 && total > 0 && Math.abs(scheduledTotal + outsideNotScheduled - total) > 1 && (
               <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
                 Scheduled {formatCurrency(scheduledTotal)}
-                {paidOutside > 0 && <> + {formatCurrency(paidOutside)} outside the app</>} doesn&apos;t add up to
+                {outsideNotScheduled > 0 && <> + {formatCurrency(outsideNotScheduled)} outside the app</>} doesn&apos;t add up to
                 the total value of {formatCurrency(plot.total_value)}.
               </p>
             )}

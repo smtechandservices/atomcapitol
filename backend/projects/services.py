@@ -36,6 +36,8 @@ def assign_plot(plot, email, *, role="PRIMARY", name="", phone="", commercial_po
     elif name or phone:
         customer.name = name or customer.name
         customer.phone = phone or customer.phone
+    submission = getattr(customer, "kyc_submission", None) if customer.pk else None
+    awaiting_plot = customer.assigned_plot_id is None and customer.is_active and bool(submission and submission.step1_submitted_at)
 
     customer.assigned_plot = plot
     customer.plot_role = role
@@ -55,10 +57,21 @@ def assign_plot(plot, email, *, role="PRIMARY", name="", phone="", commercial_po
         plot=plot, action=PlotAssignmentHistory.Action.ASSIGNED, to_email=email, performed_by=performed_by
     )
 
-    if role == "PRIMARY" and plot.total_value and plot.instalment_count and not plot.milestones.filter(sequence__gte=2).exists():
-        from payments.services import generate_milestone_schedule
+    if role == "PRIMARY":
+        from payments.services import ensure_schedule
 
-        generate_milestone_schedule(plot)
+        ensure_schedule(plot)  # waits for the buyer's KYC Step 2 approval unless that's already happened
+
+    if awaiting_plot:
+        from notifications.services import notify_customer
+
+        notify_customer(
+            customer,
+            "PLOT_ASSIGNED",
+            "Your plot is assigned",
+            f"Plot {plot.plot_number} at {plot.project.name} is now linked to your account. Continue your KYC in the app.",
+            deep_link="kyc",
+        )
 
     return customer
 

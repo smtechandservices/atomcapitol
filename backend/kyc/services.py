@@ -28,6 +28,55 @@ def get_or_create_submission(customer):
     return submission
 
 
+IDENTITY_FIELDS = ("aadhaar_front", "aadhaar_back", "pan_card")
+
+
+def submit_step1(customer, *, name, phone, claimed_project, claimed_plot_number, aadhaar_front=None, aadhaar_back=None, pan_card=None):
+    """New customers without a plot: who they are and which plot they say they bought. Re-submittable until admin
+    assigns a plot; ID files left as None keep what's on record. The files then count for Step 2 too.
+    """
+    customer.name = name
+    customer.phone = phone
+    customer.save(update_fields=["name", "phone", "updated_at"])
+
+    submission = get_or_create_submission(customer)
+    submission.claimed_project = claimed_project
+    submission.claimed_plot_number = claimed_plot_number
+    for field, file in zip(IDENTITY_FIELDS, (aadhaar_front, aadhaar_back, pan_card)):
+        if file is not None:
+            setattr(submission, field, file)
+    submission.step1_submitted_at = timezone.now()
+    submission.save()
+    return submission
+
+
+def reset_submission(customer):
+    """Wipes a submission back to nothing submitted (files stay in storage; the decision log is kept for audit)."""
+    KYCSubmission.objects.filter(customer=customer).update(
+        claimed_project="",
+        claimed_plot_number="",
+        step1_submitted_at=None,
+        plot_confirmed=False,
+        plot_mismatch_note="",
+        receipt_file="",
+        receipt_amount=None,
+        receipt_payment_date=None,
+        aadhaar_front="",
+        aadhaar_back="",
+        pan_card="",
+        step2_status=None,
+        step2_rejection_reason="",
+        step2_submitted_at=None,
+        video_file="",
+        prompt_lines=[],
+        step3_status=None,
+        step3_rejection_reason="",
+        step3_submitted_at=None,
+        reviewed_by=None,
+        reviewed_at=None,
+    )
+
+
 def submit_step2(
     customer,
     *,
@@ -46,7 +95,7 @@ def submit_step2(
     submission.plot_mismatch_note = plot_mismatch_note
     if receipt_file is not None:
         submission.receipt_file = receipt_file
-    for field, file in (("aadhaar_front", aadhaar_front), ("aadhaar_back", aadhaar_back), ("pan_card", pan_card)):
+    for field, file in zip(IDENTITY_FIELDS, (aadhaar_front, aadhaar_back, pan_card)):
         if file is not None:
             setattr(submission, field, file)
     submission.receipt_amount = receipt_amount
@@ -106,9 +155,10 @@ def decide_step(submission, *, step, decision, reason, admin_user, receipt_entri
     new_status = _recompute_customer_status(customer, submission)
 
     if step == "STEP2" and decision == "APPROVED":
-        from payments.services import record_kyc_instalment
+        from payments.services import ensure_schedule, record_kyc_instalment
 
         record_kyc_instalment(submission, receipt_entries=receipt_entries)
+        ensure_schedule(customer.assigned_plot)
 
     if new_status == Customer.KYCStatus.APPROVED:
         notify_customer(customer, "KYC_APPROVED", "Your KYC is approved", "Your account is now fully unlocked.", deep_link="home")

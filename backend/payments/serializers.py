@@ -34,6 +34,7 @@ class MilestoneDetailSerializer(serializers.ModelSerializer):
             "status",
             "paid_date",
             "payment_mode",
+            "bank",
             "transaction_reference",
             "admin_remarks",
             "latest_proof",
@@ -68,7 +69,6 @@ class PayMilestoneSerializer(serializers.Serializer):
     claimed_amount = serializers.DecimalField(max_digits=14, decimal_places=2)
     payment_date = serializers.DateField()
     payment_mode = serializers.CharField(max_length=50, required=False, allow_blank=True, default="")
-    transaction_reference = serializers.CharField(max_length=100, required=False, allow_blank=True, default="")
 
 
 class ScheduleItemSerializer(serializers.Serializer):
@@ -153,6 +153,7 @@ class AdminMilestoneSerializer(serializers.ModelSerializer):
             "status",
             "paid_date",
             "payment_mode",
+            "bank",
             "transaction_reference",
             "admin_remarks",
         ]
@@ -224,6 +225,10 @@ class PaymentVerificationQueueSerializer(serializers.ModelSerializer):
 
 
 class ApprovePaymentProofSerializer(serializers.Serializer):
+    # Printed on the receipt. payment_mode defaults to what the customer picked.
+    payment_mode = serializers.CharField(max_length=50, required=False, allow_blank=True)
+    bank = serializers.CharField(max_length=100)
+    transaction_reference = serializers.CharField(max_length=100)
     # Revised unpaid schedule — required when the claimed amount doesn't match the milestone.
     schedule = ScheduleItemSerializer(many=True, required=False)
 

@@ -4,6 +4,7 @@ from . import views
 
 urlpatterns = [
     # CustomerApp onboarding
+    path("customer/kyc/step1/", views.KYCStep1View.as_view(), name="kyc-step1"),
     path("customer/kyc/plot-check/", views.KYCPlotCheckView.as_view(), name="kyc-plot-check"),
     path("customer/kyc/step2/", views.KYCStep2View.as_view(), name="kyc-step2"),
     path("customer/kyc/step3/", views.KYCStep3View.as_view(), name="kyc-step3"),

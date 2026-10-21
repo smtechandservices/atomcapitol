@@ -45,7 +45,8 @@ export function ReceiptEntriesModal({
     setEntries(entries.map((e, idx) => (idx === i ? { ...e, ...patch } : e)))
 
   const total = entries.reduce((sum, e) => sum + (Number(e.amount) || 0), 0)
-  const valid = entries.length > 0 && entries.every((e) => e.payment_by.trim() && e.payment_date && Number(e.amount) > 0)
+  const valid =
+    entries.length > 0 && entries.every((e) => e.payment_by.trim() && e.payment_date && Number(e.amount) > 0 && e.bank.trim() && e.reference.trim())
 
   return (
     <Modal
@@ -98,11 +99,11 @@ export function ReceiptEntriesModal({
               <FieldWrap label="Amount" required>
                 <Input type="number" min="0" value={entry.amount} onChange={(e) => update(i, { amount: e.target.value })} />
               </FieldWrap>
-              <FieldWrap label="Bank">
+              <FieldWrap label="Bank" required>
                 <Input value={entry.bank} placeholder="e.g. SBI Bank" onChange={(e) => update(i, { bank: e.target.value })} />
               </FieldWrap>
-              <FieldWrap label="Chq. / Ref. no.">
-                <Input value={entry.reference} onChange={(e) => update(i, { reference: e.target.value })} />
+              <FieldWrap label="Txn ID / Chq. no." required>
+                <Input value={entry.reference} placeholder="UTR, UPI ref or cheque no." onChange={(e) => update(i, { reference: e.target.value })} />
               </FieldWrap>
             </div>
           </div>

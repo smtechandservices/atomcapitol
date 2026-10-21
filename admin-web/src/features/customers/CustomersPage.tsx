@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import clsx from 'clsx'
-import { ChevronRight, Clock, Info, LandPlot, Plus, Search, ShieldCheck, Users, X } from 'lucide-react'
+import { ChevronRight, Clock, Info, LandPlot, Plus, Search, ShieldCheck, UserPlus, Users, X } from 'lucide-react'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Card, StatCard } from '@/components/ui/Card'
 import { DataTable, type Column } from '@/components/ui/DataTable'
@@ -46,7 +46,9 @@ export function CustomersPage() {
     page,
     search: search || undefined,
     kyc_status: kycStatus || undefined,
-    assigned_plot__isnull: plotFilter || undefined,
+    // 'new' = signed up from the app and waiting for a plot
+    assigned_plot__isnull: plotFilter === 'new' ? 'true' : plotFilter || undefined,
+    kyc_submission__step1_submitted_at__isnull: plotFilter === 'new' ? 'false' : undefined,
     is_active: accessFilter || undefined,
   })
   const createCustomer = useCreateCustomer()
@@ -71,7 +73,10 @@ export function CustomersPage() {
             {initialsOf(c)}
           </span>
           <div className="min-w-0">
-            <p className={clsx('max-w-[240px] truncate font-medium', c.name ? 'text-ink-800' : 'italic text-ink-400')}>{c.name || 'No name'}</p>
+            <p className="flex items-center gap-1.5">
+              <span className={clsx('max-w-[240px] truncate font-medium', c.name ? 'text-ink-800' : 'italic text-ink-400')}>{c.name || 'No name'}</span>
+              {c.claimed_plot && <NewTag />}
+            </p>
             <p className="max-w-[240px] truncate text-xs text-ink-400">{c.email}</p>
           </div>
         </div>
@@ -91,6 +96,14 @@ export function CustomersPage() {
               )}
             </p>
             <p className="max-w-[200px] truncate text-xs text-ink-400">{c.project_name}</p>
+          </div>
+        ) : c.claimed_plot ? (
+          <div className="min-w-0" title="What the customer typed — assign the matching plot from their profile">
+            <p className="flex items-center gap-1.5 text-ink-600">
+              <span className="rounded-full border border-dashed border-gold-300 px-1.5 py-0.5 text-[10px] font-medium text-gold-800">Claims</span>
+              <span className="max-w-[150px] truncate">{c.claimed_plot.plot_number}</span>
+            </p>
+            <p className="max-w-[200px] truncate text-xs text-ink-400">{c.claimed_plot.project}</p>
           </div>
         ) : (
           <span className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-ink-200 px-2 py-0.5 text-xs text-ink-400">No plot</span>
@@ -159,11 +172,12 @@ export function CustomersPage() {
         }
       />
 
-      <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 xl:grid-cols-5">
         <StatCard label="Total customers" value={counts?.total ?? '—'} icon={<Users className="size-5" />} accent="ink" className="py-6" />
         <StatCard label="KYC approved" value={counts?.approved ?? '—'} icon={<ShieldCheck className="size-5" />} accent="success" className="py-6" />
         <StatCard label="Awaiting KYC review" value={counts?.submitted ?? '—'} icon={<Clock className="size-5" />} accent="gold" className="py-6" />
         <StatCard label="Without a plot" value={counts?.noPlot ?? '—'} icon={<LandPlot className="size-5" />} accent="ink" className="py-6" />
+        <StatCard label="New · awaiting plot" value={counts?.newCustomers ?? '—'} icon={<UserPlus className="size-5" />} accent="gold" className="py-6" />
       </div>
 
       <Card>
@@ -179,11 +193,12 @@ export function CustomersPage() {
               />
             </div>
             {/* Select is w-full by default, so the wrappers set their width */}
-            <div className="w-36 shrink-0">
+            <div className="w-44 shrink-0">
               <Select value={plotFilter} onChange={(e) => resetTo(() => setPlotFilter(e.target.value))}>
                 <option value="">Any plot</option>
                 <option value="false">Has a plot</option>
                 <option value="true">No plot</option>
+                <option value="new">New · awaiting plot</option>
               </Select>
             </div>
             <div className="w-36 shrink-0">
@@ -276,7 +291,7 @@ export function CustomersPage() {
         <div className="space-y-4">
           <div className="flex gap-2.5 rounded-lg bg-gold-50 px-3 py-2.5 text-xs text-gold-900 ring-1 ring-gold-200">
             <Info className="mt-0.5 size-4 shrink-0 text-gold-700" />
-            <p>The email becomes their app login. They can sign in once a plot is assigned to them.</p>
+            <p>The email becomes their app login. Until a plot is assigned, the app asks them for KYC Step 1 (plot details and ID) and then waits for you.</p>
           </div>
           <FieldWrap label="Email" required error={form.email && !emailValid ? 'Enter a valid email address' : undefined}>
             <Input autoFocus type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="name@example.com" />
@@ -336,6 +351,17 @@ function initialsOf(c: CustomerListItem) {
     .slice(0, 2)
     .map((w) => w[0]?.toUpperCase())
     .join('')
+}
+
+export function NewTag() {
+  return (
+    <span
+      className="shrink-0 rounded-full bg-gold-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gold-800"
+      title="Signed up from the app and waiting for a plot"
+    >
+      New
+    </span>
+  )
 }
 
 function KycPill({ status }: { status: string }) {

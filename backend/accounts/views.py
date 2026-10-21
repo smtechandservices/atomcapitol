@@ -5,6 +5,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import generics, status, viewsets
 from rest_framework.filters import SearchFilter, OrderingFilter
 from rest_framework.permissions import AllowAny
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
@@ -38,27 +39,30 @@ from .serializers import (
 # CustomerApp auth — flowchart step 1 (email + plot check) & OTP
 # ---------------------------------------------------------------------------
 class CustomerLoginView(APIView):
-    """4.2 Login (Email): validate + check registered & plot-assigned, then send OTP."""
+    """4.2 Login (Email): send an OTP. An unknown email is signed up as a new customer, verified by that OTP."""
 
     permission_classes = [AllowAny]
     authentication_classes = []
+    # Anyone can make us email any address now, so cap OTP sends per IP.
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "customer_otp"
 
     def post(self, request):
         serializer = CustomerEmailLoginSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         email = serializer.validated_data["email"]
 
-        customer = services.get_login_eligible_customer(email)
+        customer = services.get_login_customer(email, create=True)
         if customer is None:
             settings_obj = SiteSettings.load()
             return Response(
                 {
-                    "detail": "This email is not registered and assigned to a plot. Please contact support.",
-                    "errors": {},
+                    "detail": "This account no longer has app access. Please contact support.",
+                    "errors": {"code": "access_revoked"},
                     "support_phone": settings_obj.support_phone,
                     "support_email": settings_obj.support_email,
                 },
-                status=status.HTTP_404_NOT_FOUND,
+                status=status.HTTP_403_FORBIDDEN,
             )
 
         try:
@@ -75,11 +79,13 @@ class CustomerLoginView(APIView):
 class CustomerResendOTPView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "customer_otp"
 
     def post(self, request):
         serializer = ResendOTPSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        customer = services.get_login_eligible_customer(serializer.validated_data["email"])
+        customer = services.get_login_customer(serializer.validated_data["email"])
         if customer is None:
             return Response({"detail": "Not found.", "errors": {}}, status=status.HTTP_404_NOT_FOUND)
         try:
@@ -101,7 +107,7 @@ class CustomerVerifyOTPView(APIView):
         email = serializer.validated_data["email"]
         code = serializer.validated_data["code"]
 
-        customer = services.get_login_eligible_customer(email)
+        customer = services.get_login_customer(email)
         if customer is None:
             return Response({"detail": "Not found.", "errors": {}}, status=status.HTTP_404_NOT_FOUND)
 
@@ -109,13 +115,15 @@ class CustomerVerifyOTPView(APIView):
             services.verify_otp(customer, code)
         except services.OTPVerifyError as exc:
             return Response({"detail": exc.message, "errors": {"code": exc.code}}, status=status.HTTP_400_BAD_REQUEST)
+        if not customer.is_active:
+            services.restart_as_new_customer(customer)
 
         tokens = issue_customer_tokens(customer)
         return Response(
             {
                 **tokens,
                 "kyc_status": customer.kyc_status,
-                "next_route": services.next_route_for_status(customer.kyc_status),
+                "next_route": services.next_route_for(customer),
                 "customer": CustomerProfileSerializer(customer, context={"request": request}).data,
             },
             status=status.HTTP_200_OK,
@@ -284,18 +292,24 @@ class CustomerAdminViewSet(viewsets.ModelViewSet):
     """List/search/export (7.5), Add/Invite (7.6), Detail + edit (7.7)."""
 
     # Explicit order: Customer has no Meta.ordering, and unordered pagination can repeat/skip rows.
-    queryset = Customer.objects.select_related("assigned_plot__project", "assigned_sales_person").order_by("-created_at", "-id")
+    queryset = (
+        Customer.objects.on_record()
+        .select_related("assigned_plot__project", "assigned_sales_person", "kyc_submission")
+        .order_by("-created_at", "-id")
+    )
     permission_classes = [role_required("SUPER_ADMIN", "ACCOUNTS", "SUPPORT")]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    # assigned_plot__isnull=true lists customers free to be put on a plot (used by the plot assign picker).
+    # assigned_plot__isnull=true lists customers free to be put on a plot (used by the plot assign picker);
+    # with kyc_submission__step1_submitted_at__isnull=false it's the new customers waiting for one.
     filterset_fields = {
         "kyc_status": ["exact"],
         "is_active": ["exact"],
         "assigned_plot__project": ["exact"],
         "assigned_sales_person": ["exact", "isnull"],
         "assigned_plot": ["isnull"],
+        "kyc_submission__step1_submitted_at": ["isnull"],
     }
-    search_fields = ["name", "email", "phone", "assigned_plot__plot_number"]
+    search_fields = ["name", "email", "phone", "assigned_plot__plot_number", "kyc_submission__claimed_plot_number"]
     ordering_fields = ["created_at", "name", "kyc_status"]
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 

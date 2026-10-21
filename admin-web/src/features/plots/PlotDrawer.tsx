@@ -25,6 +25,7 @@ import {
 } from './api'
 import { CustomerPicker, type PickedBuyer } from './CustomerPicker'
 import { DeletePlotModal } from './DeletePlotModal'
+import { paymentTermsReady } from './AssignPlotFields'
 
 type AssignDetails = Omit<AssignPayload, 'email'>
 
@@ -235,7 +236,7 @@ export function PlotDrawer({ plot, onClose }: { plot: Plot; onClose: () => void 
             )}
             {assignRole === 'PRIMARY' && (
               <div className="grid grid-cols-3 gap-3">
-                <FieldWrap label="Total value">
+                <FieldWrap label="Total value" required>
                   <Input
                     type="number"
                     value={assignForm.total_value ?? ''}
@@ -249,7 +250,7 @@ export function PlotDrawer({ plot, onClose }: { plot: Plot; onClose: () => void 
                     onChange={(e) => setAssignForm({ ...assignForm, amount_paid_outside_app: e.target.value })}
                   />
                 </FieldWrap>
-                <FieldWrap label="Instalments" hint="Min 2. Instalment 1 is the KYC booking receipt">
+                <FieldWrap label="Instalments" required hint="Min 2. Instalment 1 is the KYC booking receipt">
                   <Input
                     type="number"
                     min={2}
@@ -259,7 +260,12 @@ export function PlotDrawer({ plot, onClose }: { plot: Plot; onClose: () => void 
                 </FieldWrap>
               </div>
             )}
-            <Button variant="secondary" loading={assignPlot.isPending} onClick={submitAssign} disabled={!pickedOk(buyer)}>
+            <Button
+              variant="secondary"
+              loading={assignPlot.isPending}
+              onClick={submitAssign}
+              disabled={!pickedOk(buyer) || (assignRole === 'PRIMARY' && !paymentTermsReady(assignForm.total_value, assignForm.instalment_count))}
+            >
               {buyer?.kind === 'new' ? 'Create & assign' : 'Assign'}
             </Button>
           </div>
