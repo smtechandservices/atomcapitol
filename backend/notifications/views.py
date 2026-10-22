@@ -21,6 +21,7 @@ from .serializers import BannerSerializer, NotificationCampaignSerializer, Notif
 # CustomerApp — 5.11 Notifications, dashboard Banners
 # ---------------------------------------------------------------------------
 class CustomerNotificationListView(generics.ListAPIView):
+    queryset = Notification.objects.none()
     serializer_class = NotificationSerializer
     permission_classes = [IsCustomerUser]
     filter_backends = [DjangoFilterBackend]
@@ -51,6 +52,7 @@ class CustomerNotificationMarkAllReadView(APIView):
 
 
 class CustomerBannerListView(generics.ListAPIView):
+    queryset = Banner.objects.none()
     serializer_class = BannerSerializer
     permission_classes = [IsKYCApproved]
 

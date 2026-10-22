@@ -73,7 +73,7 @@ if systemctl is-active --quiet "$SERVICE"; then
 else
   echo
   sudo journalctl -u "$SERVICE" -n 40 --no-pager -o short-iso
-  fail "$SERVICE failed to start — logs above. More: ./logs.sh errors"
+  fail "$SERVICE failed to start — logs above. More: ./logs.sh"
 fi
 
 header "Startup log"

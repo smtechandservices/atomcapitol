@@ -106,6 +106,7 @@ class CustomerPayMilestoneView(APIView):
 class CustomerChangeRequestListCreateView(generics.ListCreateAPIView):
     """5.6 Request Milestone Change."""
 
+    queryset = MilestoneChangeRequest.objects.none()
     permission_classes = [IsKYCApproved]
 
     def get_serializer_class(self):

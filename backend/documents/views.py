@@ -21,6 +21,7 @@ from .serializers import AdminDocumentSerializer, DocumentSerializer
 # CustomerApp — 5.7 Documents
 # ---------------------------------------------------------------------------
 class CustomerDocumentListView(generics.ListAPIView):
+    queryset = Document.objects.none()
     serializer_class = DocumentSerializer
     permission_classes = [IsKYCApproved]
     filter_backends = [DjangoFilterBackend]

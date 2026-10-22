@@ -54,7 +54,7 @@ ERRORS=$(sudo journalctl -u "$SERVICE" --since "1 hour ago" --no-pager -o cat \
   | grep -E "Internal Server Error|Traceback|CRITICAL|WORKER TIMEOUT|^[a-zA-Z_.]+(Error|Exception):")
 if [ -n "$ERRORS" ]; then
   echo "$ERRORS" | sort | uniq -c | sort -rn | head -n 10 | sed "s/^/${RED}/;s/$/${RESET}/"
-  echo "Details: ./logs.sh errors \"1 hour ago\""
+  echo "Details: sudo journalctl -u $SERVICE --since \"1 hour ago\""
 else
   echo "${GREEN}✔ none${RESET}"
 fi

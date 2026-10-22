@@ -29,6 +29,7 @@ from .serializers import (
 # CustomerApp — 5.8/5.9/5.10 Support Tickets
 # ---------------------------------------------------------------------------
 class CustomerTicketListCreateView(generics.ListCreateAPIView):
+    queryset = Ticket.objects.none()
     permission_classes = [IsKYCApproved]
     parser_classes = [JSONParser, MultiPartParser, FormParser]
     filter_backends = [DjangoFilterBackend]
