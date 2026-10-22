@@ -41,6 +41,14 @@ const ROLE_LABEL: Record<string, string> = {
   SUPPORT: 'Support',
 }
 
+// Desktop layout per tile count, so every row fills the full width. Five tiles = 2 on top, 3 below (6-col grid).
+const QUEUE_GRID: Record<number, string> = {
+  1: 'sm:grid-cols-1',
+  3: 'xl:grid-cols-3',
+  4: 'xl:grid-cols-4',
+  5: 'xl:grid-cols-6 xl:[&>*]:col-span-2 xl:[&>*:nth-child(-n+2)]:col-span-3',
+}
+
 /**
  * Role-shaped dashboard: every tile/panel is its own component with its own query, and is only mounted
  * when the signed-in role can read that area — so no role ever fires a request that would 403.
@@ -86,7 +94,7 @@ export function DashboardPage() {
       {queue.length > 0 && (
         <section className="space-y-2">
           <h2 className="text-xs font-semibold uppercase tracking-wide text-ink-400">Waiting on you</h2>
-          <div className={clsx('grid grid-cols-1 gap-4 sm:grid-cols-2', queue.length >= 4 ? 'xl:grid-cols-4' : queue.length === 3 ? 'xl:grid-cols-3' : '')}>{queue}</div>
+          <div className={clsx('grid grid-cols-1 gap-4 sm:grid-cols-2', QUEUE_GRID[queue.length])}>{queue}</div>
         </section>
       )}
 
@@ -199,9 +207,9 @@ function DocumentsTile() {
 // ---------------------------------------------------------------------------
 // Panels
 // ---------------------------------------------------------------------------
-function Panel({ title, subtitle, href, linkLabel = 'Open', children }: { title: string; subtitle?: string; href?: string; linkLabel?: string; children: ReactNode }) {
+function Panel({ title, subtitle, href, linkLabel = 'Open', className, children }: { title: string; subtitle?: string; href?: string; linkLabel?: string; className?: string; children: ReactNode }) {
   return (
-    <Card className="flex flex-col">
+    <Card className={clsx('flex flex-col', className)}>
       <CardHeader
         title={title}
         subtitle={subtitle}
@@ -534,7 +542,7 @@ function AnnouncementsPanel() {
 function ActivityPanel() {
   const { data } = useAuditLog({ page: 1 })
   return (
-    <Panel title="Recent activity" subtitle="Latest changes across the portal" href="/audit-log" linkLabel="Audit log">
+    <Panel title="Recent activity" subtitle="Latest changes across the portal" href="/audit-log" linkLabel="Audit log" className="xl:col-span-2">
       {!data ? (
         <Loading />
       ) : data.results.length === 0 ? (
