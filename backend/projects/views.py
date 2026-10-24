@@ -175,13 +175,6 @@ class PlotViewSet(viewsets.ModelViewSet):
         serializer = PlotAssignSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        # The primary buyer's schedule is generated from these, so assigning without them would leave the plot with none.
-        has_terms = ("total_value" in data and data.get("instalment_count")) or (plot.total_value and plot.instalment_count)
-        if data.get("role", "PRIMARY") == "PRIMARY" and not has_terms:
-            return Response(
-                {"detail": "Set the total value and number of instalments for the primary buyer.", "errors": {"code": "payment_terms_required"}},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
         try:
             customer = services.assign_plot(
                 plot,

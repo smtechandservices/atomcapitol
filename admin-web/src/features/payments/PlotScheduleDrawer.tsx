@@ -58,6 +58,13 @@ export function PlotScheduleDrawer({ plotId, onClose }: { plotId: number; onClos
   const outstanding = Math.max(0, total - collected)
   const pct = total ? Math.min(100, Math.max(0, (collected / total) * 100)) : 0
   const scheduledTotal = milestones.reduce((sum, m) => sum + Number(m.amount), 0)
+  // The price agreed with the buyer (total_value) can differ from the plot's list price.
+  const listPrice = Number(plot?.price ?? 0)
+  const priceNote = !listPrice
+    ? undefined
+    : !total || total === listPrice
+      ? `List price ${formatCurrency(listPrice)}`
+      : `List ${formatCurrency(listPrice)} · ${formatCurrency(Math.abs(listPrice - total))} ${total < listPrice ? 'off' : 'above'}`
 
   const openCreate = () => {
     setEditing(null)
@@ -106,7 +113,7 @@ export function PlotScheduleDrawer({ plotId, onClose }: { plotId: number; onClos
             </div>
 
             <div className="grid grid-cols-3 gap-3">
-              <Tile label="Total value" value={formatCurrency(plot.total_value)} />
+              <Tile label="Offered price" value={formatCurrency(plot.total_value)} note={priceNote} />
               <Tile label="Collected" value={plot.total_value ? formatCurrency(collected) : '—'} tone="text-emerald-700" />
               <Tile label="Outstanding" value={plot.total_value ? formatCurrency(outstanding) : '—'} tone="text-ink-800" />
             </div>
@@ -117,7 +124,6 @@ export function PlotScheduleDrawer({ plotId, onClose }: { plotId: number; onClos
                 </div>
                 <p className="mt-1.5 text-xs text-ink-400">
                   {Math.round(pct)}% collected
-                  {paidOutside > 0 && <> · includes {formatCurrency(paidOutside)} paid outside the app</>}
                 </p>
               </div>
             )}
@@ -260,19 +266,22 @@ export function PlotScheduleDrawer({ plotId, onClose }: { plotId: number; onClos
                               </button>
                             </div>
                           ))}
-                        <div className="mt-2 hidden gap-1 group-hover:flex">
-                          <button onClick={() => openEdit(m)} className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-ink-500 hover:bg-ink-50 hover:text-ink-800">
-                            <Pencil className="size-3" /> Edit
-                          </button>
-                          <button
-                            onClick={() => setDeleteTarget(m)}
-                            disabled={locked}
-                            title={locked ? "Paid or under-review milestones can't be deleted" : undefined}
-                            className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:text-ink-300 disabled:hover:bg-transparent"
-                          >
-                            <Trash2 className="size-3" /> Delete
-                          </button>
-                        </div>
+                        {/* A paid milestone is settled: no editing or deleting it. */}
+                        {m.status !== 'PAID' && (
+                          <div className="mt-2 hidden gap-1 group-hover:flex">
+                            <button onClick={() => openEdit(m)} className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-ink-500 hover:bg-ink-50 hover:text-ink-800">
+                              <Pencil className="size-3" /> Edit
+                            </button>
+                            <button
+                              onClick={() => setDeleteTarget(m)}
+                              disabled={locked}
+                              title={locked ? "Under-review milestones can't be deleted" : undefined}
+                              className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:text-ink-300 disabled:hover:bg-transparent"
+                            >
+                              <Trash2 className="size-3" /> Delete
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </li>
                   )
@@ -497,11 +506,12 @@ function ReceiptDownloadButton({ receipt, compact }: { receipt: NonNullable<Mile
   )
 }
 
-function Tile({ label, value, tone = 'text-ink-800' }: { label: string; value: string; tone?: string }) {
+function Tile({ label, value, tone = 'text-ink-800', note }: { label: string; value: string; tone?: string; note?: string }) {
   return (
     <div className="rounded-lg border border-ink-100 px-3 py-2.5">
       <p className="text-xs text-ink-400">{label}</p>
       <p className={clsx('mt-0.5 truncate text-sm font-semibold tabular-nums', tone)}>{value}</p>
+      {note && <p className="mt-0.5 truncate text-[11px] tabular-nums text-ink-400">{note}</p>}
     </div>
   )
 }

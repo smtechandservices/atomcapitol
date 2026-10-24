@@ -262,6 +262,15 @@ export interface KycQueueDetail {
     booking_date: string | null
     total_value: string | null
   } | null
+  plot_role: PlotRole | null
+  /** The plot's payment terms; `needs_terms` when approving Step 2 must set them (primary buyer, no schedule yet). */
+  plot_terms: {
+    price: string
+    total_value: string | null
+    amount_paid_outside_app: string | null
+    instalment_count: number | null
+    needs_terms: boolean
+  } | null
   plot_confirmed: boolean
   plot_mismatch_note: string
   receipt_file: string | null

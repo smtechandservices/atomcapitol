@@ -77,13 +77,13 @@ In dev, OTP emails print to the console (`EMAIL_BACKEND` = console backend) — 
   Step 1 is in, sign-ups stay out of the admin customers list and campaigns
   (`Customer.objects.on_record()`). Login and resend-OTP are throttled to 20/hour per IP.
 - KYC resubmission is unlimited — only the rejected step needs to be redone.
-- Milestone plans are generated per plot from `total_value`, `amount_paid_outside_app`
-  and `instalment_count` captured at assignment (required for a primary buyer), but only once the
-  buyer's KYC Step 2 booking receipt is approved, so instalment 2 falls due a month after approval
-  (`payments/services.py:ensure_schedule`, called on assignment and on Step 2 approval).
-  Instalment 1 is the KYC Step 2 booking receipt, recorded as PAID when Step 2 is approved; it
-  covers the money paid outside the app, so only the excess counts separately
-  (`outside_app_not_scheduled`).
+- Assigning a plot takes no payment terms. KYC Step 2 is the payment step: the customer enters what
+  they paid outside the app and uploads the receipt. Approving the primary buyer's Step 2 needs the
+  plot's `total_value` and `instalment_count` (`kyc/services.py:apply_payment_terms`); the admin
+  reviews the resulting milestones first (`/admin/kyc-queue/<id>/schedule-preview/`). The verified
+  receipt becomes instalment 1 (PAID) and `amount_paid_outside_app`, and the rest of `total_value` is
+  split over instalments 2..n, monthly from a month after approval (`payments/services.py:ensure_schedule`).
+  Terms may still come in at assignment (CSV bulk assign); they then pre-fill the Step 2 approval.
 - Payment proof is submitted against the **full** milestone amount; partial payment goes
   through a Milestone Change Request instead.
 - No payment gateway — customers transfer via bank/UPI details from `SiteSettings` and

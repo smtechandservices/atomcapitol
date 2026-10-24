@@ -159,6 +159,8 @@ class KYCQueueDetailSerializer(serializers.ModelSerializer):
     customer_phone = serializers.CharField(source="customer.phone", read_only=True)
     kyc_status = serializers.CharField(source="customer.kyc_status", read_only=True)
     plot = serializers.SerializerMethodField()
+    plot_role = serializers.CharField(source="customer.plot_role", default=None, read_only=True)
+    plot_terms = serializers.SerializerMethodField()
     first_payment_receipt = serializers.SerializerMethodField()
     decisions = KYCDecisionLogSerializer(many=True, read_only=True)
 
@@ -172,6 +174,8 @@ class KYCQueueDetailSerializer(serializers.ModelSerializer):
             "customer_phone",
             "kyc_status",
             "plot",
+            "plot_role",
+            "plot_terms",
             "plot_confirmed",
             "plot_mismatch_note",
             "receipt_file",
@@ -217,6 +221,22 @@ class KYCQueueDetailSerializer(serializers.ModelSerializer):
             return None
         return CustomerPlotDetailSerializer(plot).data
 
+    def get_plot_terms(self, obj):
+        """The plot's payment terms, for checking the booking receipt and setting the schedule at Step 2 approval."""
+        from .services import needs_payment_terms
+
+        plot = obj.customer.assigned_plot
+        if not plot:
+            return None
+        money = lambda v: None if v is None else str(v)  # noqa: E731 — strings, like DRF's DecimalFields
+        return {
+            "price": money(plot.price),
+            "total_value": money(plot.total_value),
+            "amount_paid_outside_app": money(plot.amount_paid_outside_app),
+            "instalment_count": plot.instalment_count,
+            "needs_terms": needs_payment_terms(obj),
+        }
+
 
 class ReceiptEntrySerializer(serializers.Serializer):
     payment_by = serializers.CharField(max_length=50)
@@ -231,6 +251,12 @@ class KYCDecisionSerializer(serializers.Serializer):
     # "Approve & generate receipt": the payments behind the first receipt, as verified by the admin.
     receipt_entries = ReceiptEntrySerializer(many=True, required=False)
     step2_reason = serializers.CharField(required=False, allow_blank=True, default="")
+    # Primary buyer's Step 2 approval: the plot's terms, from which its milestone schedule is generated.
+    total_value = serializers.DecimalField(max_digits=14, decimal_places=2, min_value=Decimal("0.01"), required=False)
+    instalment_count = serializers.IntegerField(min_value=2, required=False)
+    frequency = serializers.ChoiceField(choices=["MONTHLY", "WEEKLY"], default="MONTHLY")
+    # The reviewed due dates of instalments 2..instalment_count, in order; computed from `frequency` when left out.
+    due_dates = serializers.ListField(child=serializers.DateField(), required=False)
     step3_decision = serializers.ChoiceField(choices=["APPROVED", "REJECTED"], required=False)
     step3_reason = serializers.CharField(required=False, allow_blank=True, default="")
 
@@ -242,4 +268,30 @@ class KYCDecisionSerializer(serializers.Serializer):
                 raise serializers.ValidationError({"receipt_entries": "Only allowed when approving Step 2."})
             if not attrs["receipt_entries"]:
                 raise serializers.ValidationError({"receipt_entries": "Add at least one payment."})
+        if ("total_value" in attrs) != ("instalment_count" in attrs):
+            raise serializers.ValidationError("Send total_value and instalment_count together.")
+        if "total_value" in attrs and attrs.get("step2_decision") != "APPROVED":
+            raise serializers.ValidationError({"total_value": "Only allowed when approving Step 2."})
+        dates = attrs.get("due_dates")
+        if dates is not None:
+            if "instalment_count" not in attrs or len(dates) != attrs["instalment_count"] - 1:
+                raise serializers.ValidationError({"due_dates": "Give one due date for each instalment after the first."})
+            if any(a >= b for a, b in zip(dates, dates[1:])):
+                raise serializers.ValidationError({"due_dates": "Each due date must be after the one before it."})
         return attrs
+
+    def get_payment_terms(self):
+        data = self.validated_data
+        if "total_value" not in data:
+            return None
+        return {"total_value": data["total_value"], "instalment_count": data["instalment_count"]}
+
+    def get_schedule_options(self):
+        return {"frequency": self.validated_data["frequency"], "due_dates": self.validated_data.get("due_dates")}
+
+
+class SchedulePreviewSerializer(serializers.Serializer):
+    total_value = serializers.DecimalField(max_digits=14, decimal_places=2, min_value=Decimal("0.01"))
+    instalment_count = serializers.IntegerField(min_value=2)
+    frequency = serializers.ChoiceField(choices=["MONTHLY", "WEEKLY"], default="MONTHLY")
+    receipt_entries = ReceiptEntrySerializer(many=True, required=False)

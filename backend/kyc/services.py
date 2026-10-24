@@ -1,4 +1,5 @@
 import random
+from decimal import Decimal
 
 from django.db import transaction
 from django.utils import timezone
@@ -136,10 +137,52 @@ def _recompute_customer_status(customer, submission):
     return new_status
 
 
+def needs_payment_terms(submission):
+    """Approving the primary buyer's Step 2 generates the plot's schedule, so it needs payment terms unless one exists."""
+    customer = submission.customer
+    plot = customer.assigned_plot
+    return bool(plot and customer.plot_role == "PRIMARY" and not plot.milestones.filter(sequence__gte=2).exists())
+
+
+def booking_amount(submission, receipt_entries=None):
+    """Instalment 1: the payments the admin verified on the receipt, else what the customer says they paid."""
+    if receipt_entries:
+        return sum(Decimal(e["amount"]) for e in receipt_entries)
+    return submission.receipt_amount or Decimal(0)
+
+
+def apply_payment_terms(submission, *, total_value, instalment_count, receipt_entries=None):
+    """Sets the plot's terms at Step 2 approval. The booking receipt is everything paid outside the app, so it
+    becomes amount_paid_outside_app and the rest of total_value is split over instalments 2..instalment_count.
+    """
+    from payments.services import KYC_INSTALMENT_SEQUENCE, PaymentError
+
+    plot = submission.customer.assigned_plot
+    existing = plot.milestones.filter(sequence=KYC_INSTALMENT_SEQUENCE).first()
+    paid = existing.amount if existing else booking_amount(submission, receipt_entries)
+    if total_value <= paid:
+        raise PaymentError("Total value must be more than the booking payment (instalment 1).", "total_value_too_low")
+    plot.total_value = total_value
+    plot.instalment_count = instalment_count
+    plot.amount_paid_outside_app = paid
+    plot.save(update_fields=["total_value", "instalment_count", "amount_paid_outside_app", "updated_at"])
+
+
 @transaction.atomic
-def decide_step(submission, *, step, decision, reason, admin_user, receipt_entries=None):
+def decide_step(submission, *, step, decision, reason, admin_user, receipt_entries=None, payment_terms=None, schedule_options=None):
     """step in {'STEP2','STEP3'}; decision in {'APPROVED','REJECTED'}.
-    `receipt_entries` on a STEP2 approval also issues the first-payment receipt PDF."""
+    `receipt_entries` on a STEP2 approval also issues the first-payment receipt PDF.
+    `payment_terms` ({total_value, instalment_count}) on the primary buyer's STEP2 approval set the plot's schedule,
+    laid out by `schedule_options` ({frequency, due_dates}, see payments.services.schedule_rows)."""
+    if step == "STEP2" and decision == "APPROVED":
+        from payments.services import PaymentError
+
+        if payment_terms:
+            apply_payment_terms(submission, receipt_entries=receipt_entries, **payment_terms)
+        plot = submission.customer.assigned_plot
+        if needs_payment_terms(submission) and not (plot.total_value and plot.instalment_count):
+            raise PaymentError("Set the total value and number of instalments to approve Step 2.", "payment_terms_required")
+
     field_status = "step2_status" if step == "STEP2" else "step3_status"
     field_reason = "step2_rejection_reason" if step == "STEP2" else "step3_rejection_reason"
 
@@ -158,7 +201,7 @@ def decide_step(submission, *, step, decision, reason, admin_user, receipt_entri
         from payments.services import ensure_schedule, record_kyc_instalment
 
         record_kyc_instalment(submission, receipt_entries=receipt_entries)
-        ensure_schedule(customer.assigned_plot)
+        ensure_schedule(customer.assigned_plot, **(schedule_options or {}))
 
     if new_status == Customer.KYCStatus.APPROVED:
         notify_customer(customer, "KYC_APPROVED", "Your KYC is approved", "Your account is now fully unlocked.", deep_link="home")

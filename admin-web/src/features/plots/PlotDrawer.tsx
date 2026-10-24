@@ -25,7 +25,6 @@ import {
 } from './api'
 import { CustomerPicker, type PickedBuyer } from './CustomerPicker'
 import { DeletePlotModal } from './DeletePlotModal'
-import { paymentTermsReady } from './AssignPlotFields'
 
 type AssignDetails = Omit<AssignPayload, 'email'>
 
@@ -77,9 +76,6 @@ export function PlotDrawer({ plot, onClose }: { plot: Plot; onClose: () => void 
         // existing customers keep their stored name/phone
         name: isNew ? assignForm.name : undefined,
         phone: isNew ? assignForm.phone : undefined,
-        total_value: assignForm.total_value || undefined,
-        amount_paid_outside_app: assignForm.amount_paid_outside_app || undefined,
-        instalment_count: assignForm.instalment_count || undefined,
       })
       toast.success('Buyer assigned')
       setAssignForm(emptyAssign)
@@ -150,7 +146,7 @@ export function PlotDrawer({ plot, onClose }: { plot: Plot; onClose: () => void 
           <Info label="Price / sq. yd" value={formatCurrency(plot.rate_per_sq_yd)} />
           <Info label="PLC" value={Number(plot.plc_percent) ? `${Number(plot.plc_percent)}%${plot.plc_type ? ` (${plot.plc_type})` : ''}` : '—'} />
           <Info label="List price" value={formatCurrency(plot.price)} />
-          <Info label="Total value" value={formatCurrency(plot.total_value)} />
+          <Info label="Offered price" value={formatCurrency(plot.total_value)} />
           <Info label="Paid outside app" value={formatCurrency(plot.amount_paid_outside_app)} />
           <Info label="Remaining balance" value={formatCurrency(plot.remaining_balance)} />
           <Info label="Instalments" value={plot.instalment_count ?? '—'} />
@@ -234,37 +230,11 @@ export function PlotDrawer({ plot, onClose }: { plot: Plot; onClose: () => void 
                 </FieldWrap>
               </div>
             )}
-            {assignRole === 'PRIMARY' && (
-              <div className="grid grid-cols-3 gap-3">
-                <FieldWrap label="Total value" required>
-                  <Input
-                    type="number"
-                    value={assignForm.total_value ?? ''}
-                    onChange={(e) => setAssignForm({ ...assignForm, total_value: e.target.value })}
-                  />
-                </FieldWrap>
-                <FieldWrap label="Paid outside app">
-                  <Input
-                    type="number"
-                    value={assignForm.amount_paid_outside_app ?? ''}
-                    onChange={(e) => setAssignForm({ ...assignForm, amount_paid_outside_app: e.target.value })}
-                  />
-                </FieldWrap>
-                <FieldWrap label="Instalments" required hint="Min 2. Instalment 1 is the KYC booking receipt">
-                  <Input
-                    type="number"
-                    min={2}
-                    value={assignForm.instalment_count ?? ''}
-                    onChange={(e) => setAssignForm({ ...assignForm, instalment_count: Number(e.target.value) })}
-                  />
-                </FieldWrap>
-              </div>
-            )}
             <Button
               variant="secondary"
               loading={assignPlot.isPending}
               onClick={submitAssign}
-              disabled={!pickedOk(buyer) || (assignRole === 'PRIMARY' && !paymentTermsReady(assignForm.total_value, assignForm.instalment_count))}
+              disabled={!pickedOk(buyer)}
             >
               {buyer?.kind === 'new' ? 'Create & assign' : 'Assign'}
             </Button>

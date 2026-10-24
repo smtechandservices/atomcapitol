@@ -54,6 +54,12 @@ export interface KycDecisionPayload {
   step2_decision?: 'APPROVED' | 'REJECTED'
   step2_reason?: string
   receipt_entries?: ReceiptEntry[]
+  /** Primary buyer's Step 2 approval: the plot's terms, from which its milestone schedule is generated. */
+  total_value?: string
+  instalment_count?: number
+  frequency?: ScheduleFrequency
+  /** Reviewed due dates of instalments 2..n, in order. */
+  due_dates?: string[]
   step3_decision?: 'APPROVED' | 'REJECTED'
   step3_reason?: string
 }
@@ -70,6 +76,33 @@ export function useDecideKyc(id: number) {
       qc.invalidateQueries({ queryKey: ['kyc-queue'] })
       qc.invalidateQueries({ queryKey: ['customers'] })
       qc.invalidateQueries({ queryKey: ['dashboard-stats'] })
+    },
+  })
+}
+
+export type ScheduleFrequency = 'MONTHLY' | 'WEEKLY'
+
+export interface PaymentTerms {
+  total_value: string
+  instalment_count: number
+  frequency?: ScheduleFrequency
+  due_dates?: string[]
+}
+
+export interface PreviewMilestone {
+  sequence: number
+  name: string
+  amount: string
+  due_date: string
+  status: 'PAID' | 'UPCOMING'
+}
+
+/** The schedule approving Step 2 with these terms would create; nothing is saved. */
+export function useSchedulePreview(id: number) {
+  return useMutation({
+    mutationFn: async (payload: PaymentTerms & { receipt_entries?: ReceiptEntry[] }) => {
+      const { data } = await api.post<{ milestones: PreviewMilestone[] }>(`/admin/kyc-queue/${id}/schedule-preview/`, payload)
+      return data.milestones
     },
   })
 }

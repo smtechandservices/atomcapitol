@@ -14,4 +14,5 @@ urlpatterns = [
     path("admin/kyc-queue/stats/", views.KYCQueueStatsView.as_view(), name="admin-kyc-queue-stats"),
     path("admin/kyc-queue/<int:pk>/", views.KYCQueueDetailView.as_view(), name="admin-kyc-queue-detail"),
     path("admin/kyc-queue/<int:pk>/decide/", views.KYCDecideView.as_view(), name="admin-kyc-decide"),
+    path("admin/kyc-queue/<int:pk>/schedule-preview/", views.KYCSchedulePreviewView.as_view(), name="admin-kyc-schedule-preview"),
 ]

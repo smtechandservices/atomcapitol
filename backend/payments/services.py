@@ -69,10 +69,28 @@ def pending_booking_payment(plot):
     return None
 
 
+SCHEDULE_STEPS = {"MONTHLY": relativedelta(months=1), "WEEKLY": relativedelta(weeks=1)}
+
+
+def schedule_rows(remaining, instalment_count, start_date=None, frequency="MONTHLY", due_dates=None):
+    """Instalments 2..instalment_count as {sequence, name, amount, due_date}: `remaining` split evenly, one per
+    month (or week) from `start_date` (default one step from today). `due_dates`, one per instalment, replace the
+    computed dates. Shared by generate_milestone_schedule and the KYC Step 2 preview.
+    """
+    n = instalment_count
+    step = SCHEDULE_STEPS[frequency]
+    start = start_date or (date.today() + step)
+    dates = due_dates or [start + step * k for k in range(n - 1)]
+    return [
+        {"sequence": i, "name": f"Instalment {i} of {n}", "amount": amount, "due_date": due}
+        for i, amount, due in zip(range(2, n + 1), _split(remaining, n - 1), dates)
+    ]
+
+
 @transaction.atomic
-def generate_milestone_schedule(plot, start_date=None):
+def generate_milestone_schedule(plot, start_date=None, frequency="MONTHLY", due_dates=None):
     """Splits what's left after the booking instalment into instalments 2..instalment_count,
-    monthly. If the buyer's KYC receipt is already approved, it's recorded as instalment 1 first.
+    monthly or weekly (see schedule_rows). If the buyer's KYC receipt is already approved, it's recorded as instalment 1 first.
     """
     if not (plot.total_value and plot.instalment_count):
         raise PaymentError("Plot is missing total_value / instalment_count.", "missing_commercial_position")
@@ -85,28 +103,21 @@ def generate_milestone_schedule(plot, start_date=None):
         first.name = f"Instalment 1 of {n}"
         first.save(update_fields=["name"])
     remaining = plot.total_value - outside_app_not_scheduled(plot) - (first.amount if first else 0)
-    start = start_date or (date.today() + relativedelta(months=1))
 
     milestones = [
-        Milestone(
-            plot=plot,
-            sequence=i,
-            name=f"Instalment {i} of {n}",
-            amount=amount,
-            due_date=start + relativedelta(months=i - 2),
-            status=Milestone.Status.UPCOMING,
-        )
-        for i, amount in zip(range(2, n + 1), _split(remaining, n - 1))
+        Milestone(plot=plot, status=Milestone.Status.UPCOMING, **row)
+        for row in schedule_rows(remaining, n, start_date, frequency, due_dates)
     ]
     Milestone.objects.bulk_create(milestones)
     refresh_plot_milestone_statuses(plot)
     return plot.milestones.all()
 
 
-def ensure_schedule(plot):
+def ensure_schedule(plot, **schedule_options):
     """Generates instalments 2..instalment_count once the plot has payment terms AND its primary buyer's booking
     receipt (KYC Step 2) is approved, so instalment 2 falls due a month after approval instead of a month after the
     plot was assigned. Called on assignment and on Step 2 approval; a no-op until both hold, or once a schedule exists.
+    `schedule_options` (frequency, due_dates) go to generate_milestone_schedule.
     """
     from kyc.models import KYCSubmission, StepStatus
 
@@ -119,7 +130,7 @@ def ensure_schedule(plot):
     ).exists()
     if not booking_approved:
         return None
-    return generate_milestone_schedule(plot)
+    return generate_milestone_schedule(plot, **schedule_options)
 
 
 def _record_approved_kyc_receipt(plot):

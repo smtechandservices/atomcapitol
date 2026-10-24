@@ -11,6 +11,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core.permissions import IsCustomerUser, IsCustomerWithPlot, role_required
+from payments.services import KYC_INSTALMENT_SEQUENCE, PaymentError, schedule_rows
 from projects.serializers import CustomerPlotDetailSerializer
 
 from . import services
@@ -23,6 +24,7 @@ from .serializers import (
     KYCStep1Serializer,
     KYCStep2Serializer,
     KYCStep3Serializer,
+    SchedulePreviewSerializer,
 )
 
 
@@ -232,17 +234,54 @@ class KYCDecideView(APIView):
         data = serializer.validated_data
 
         if "step2_decision" in data:
-            services.decide_step(
-                submission,
-                step="STEP2",
-                decision=data["step2_decision"],
-                reason=data.get("step2_reason", ""),
-                admin_user=request.user,
-                receipt_entries=data.get("receipt_entries"),
-            )
+            try:
+                services.decide_step(
+                    submission,
+                    step="STEP2",
+                    decision=data["step2_decision"],
+                    reason=data.get("step2_reason", ""),
+                    admin_user=request.user,
+                    receipt_entries=data.get("receipt_entries"),
+                    payment_terms=serializer.get_payment_terms(),
+                    schedule_options=serializer.get_schedule_options(),
+                )
+            except PaymentError as exc:
+                return Response({"detail": exc.message, "errors": {"code": exc.code}}, status=status.HTTP_400_BAD_REQUEST)
         if "step3_decision" in data:
             services.decide_step(
                 submission, step="STEP3", decision=data["step3_decision"], reason=data.get("step3_reason", ""), admin_user=request.user
             )
         submission.refresh_from_db()
         return Response({**KYCQueueDetailSerializer(submission).data, "queue": queue_position(submission)})
+
+
+class KYCSchedulePreviewView(APIView):
+    """The milestones approving Step 2 with these terms would create: instalment 1 (the booking receipt) + the rest."""
+
+    permission_classes = [role_required("KYC_REVIEWER", "SUPER_ADMIN")]
+
+    def post(self, request, pk=None):
+        submission = KYCSubmission.objects.select_related("customer__assigned_plot").filter(pk=pk).first()
+        if submission is None or submission.customer.assigned_plot is None:
+            raise NotFound("Submission not found or no plot assigned.")
+        serializer = SchedulePreviewSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        entries = data.get("receipt_entries")
+
+        n = data["instalment_count"]
+        existing = submission.customer.assigned_plot.milestones.filter(sequence=KYC_INSTALMENT_SEQUENCE).first()
+        if existing:
+            first = {"amount": existing.amount, "due_date": existing.due_date}
+        else:
+            paid_on = max(e["payment_date"] for e in entries) if entries else submission.receipt_payment_date
+            first = {"amount": services.booking_amount(submission, entries), "due_date": paid_on}
+        if data["total_value"] <= first["amount"]:
+            return Response(
+                {"detail": "Total value must be more than the booking payment (instalment 1).", "errors": {"code": "total_value_too_low"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        rows = [{"sequence": KYC_INSTALMENT_SEQUENCE, "name": f"Instalment 1 of {n}", "status": "PAID", **first}]
+        rows += [{**row, "status": "UPCOMING"} for row in schedule_rows(data["total_value"] - first["amount"], n, frequency=data["frequency"])]
+        return Response({"milestones": [{**r, "amount": str(r["amount"])} for r in rows]})

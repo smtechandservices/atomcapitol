@@ -3,7 +3,7 @@
 import { useState, type ReactNode } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, CalendarDays, Check, Copy, IdCard, LandPlot, Lock, LogIn, Mail, MapPin, Pencil, Phone, Plus, Trash2, UserRound } from 'lucide-react'
+import { ArrowLeft, CalendarDays, Check, Copy, LandPlot, Lock, LogIn, Mail, MapPin, Pencil, Phone, Plus, Trash2, UserRound } from 'lucide-react'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Card, CardHeader, CardBody } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -20,6 +20,7 @@ import { useMilestones } from '@/features/payments/api'
 import { BookingPendingPill, bookingInstalmentPending, bookingPendingHint } from '@/features/payments/milestoneStatus'
 import { useDocuments } from '@/features/documents/api'
 import { FileActions } from '@/components/ui/FileActions'
+import { FilePreview } from '@/components/ui/FilePreview'
 import { useTickets } from '@/features/tickets/api'
 import { useAllSalesPeople, useSalesPerson } from '@/features/sales/api'
 import { useAssignToPlot } from '@/features/plots/api'
@@ -344,26 +345,10 @@ export function CustomerDetailPage() {
                       Plot {claim.plot_number} · {claim.project}
                     </p>
                     <p className="mt-1 text-xs text-ink-500">
-                      Typed in the app on {formatDate(claim.submitted_at)}. Check it against your records, then assign the matching listed plot to
+                      Typed in the app on {formatDate(claim.submitted_at)}. Check it and their ID (shown when assigning) against your records, then assign the matching listed plot to
                       unlock KYC steps 2 and 3.
                     </p>
                   </div>
-                  <ul className="divide-y divide-ink-100 rounded-lg border border-ink-100">
-                    {(
-                      [
-                        ['Aadhaar (front)', claim.aadhaar_front],
-                        ['Aadhaar (back)', claim.aadhaar_back],
-                        ['PAN card', claim.pan_card],
-                      ] as const
-                    ).map(([label, path]) => (
-                      <li key={label} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
-                        <span className="flex items-center gap-2 text-ink-600">
-                          <IdCard className="size-4 text-ink-300" /> {label}
-                        </span>
-                        {path ? <FileActions path={path} label={label} /> : <span className="text-xs text-ink-300">Not uploaded</span>}
-                      </li>
-                    ))}
-                  </ul>
                   {canPlots && (
                     <Button size="sm" variant="secondary" className="w-full" onClick={openAssign}>
                       <Plus className="size-3.5" /> Assign plot
@@ -540,6 +525,28 @@ export function CustomerDetailPage() {
           <p className="mb-4 rounded-lg bg-gold-50 px-3 py-2 text-xs text-gold-900 ring-1 ring-gold-200">
             Customer says: plot <span className="font-semibold">{claim.plot_number}</span> in <span className="font-semibold">{claim.project}</span>
           </p>
+        )}
+        {claim && (
+          <div className="mb-4">
+            <p className="mb-2 text-xs font-semibold text-ink-700">Documents uploaded by the customer</p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              {(
+                [
+                  ['Aadhaar (front)', claim.aadhaar_front],
+                  ['Aadhaar (back)', claim.aadhaar_back],
+                  ['PAN card', claim.pan_card],
+                ] as const
+              ).map(([label, path]) => (
+                <div key={label} className="space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs text-ink-500">{label}</span>
+                    {path && <FileActions path={path} label={label} />}
+                  </div>
+                  <FilePreview title={label} url={absoluteMediaUrl(path)} emptyText="Not uploaded" height={180} />
+                </div>
+              ))}
+            </div>
+          </div>
         )}
         <AssignPlotFields value={assign} onChange={setAssign} />
       </Modal>

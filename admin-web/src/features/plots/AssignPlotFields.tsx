@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import clsx from 'clsx'
 import { Check, Search } from 'lucide-react'
-import { Input, Select, FieldWrap } from '@/components/ui/Field'
+import { Select, FieldWrap } from '@/components/ui/Field'
 import { Badge } from '@/components/ui/Badge'
 import { Spinner } from '@/components/ui/Spinner'
 import { formatCurrency } from '@/lib/format'
@@ -15,18 +15,12 @@ export interface AssignPlotValue {
   project: string
   plot: Plot | null
   role: PlotRole
-  total_value: string
-  amount_paid_outside_app: string
-  instalment_count: string
 }
 
 export const emptyAssignPlot: AssignPlotValue = {
   project: '',
   plot: null,
   role: 'PRIMARY',
-  total_value: '',
-  amount_paid_outside_app: '',
-  instalment_count: '',
 }
 
 /** Why this plot can't take a buyer in `role`, or null. Mirrors backend assign_plot + sensible UX limits. */
@@ -37,27 +31,16 @@ function plotBlockReason(plot: Plot, role: PlotRole): string | null {
   return null
 }
 
-/** A primary buyer's schedule is generated from these, so they're required; co-applicants share the plot's terms. */
-export function paymentTermsReady(total: string | number | undefined, instalments: string | number | undefined) {
-  return Number(total) > 0 && Number(instalments) >= 2
-}
-
 export function assignPlotReady(v: AssignPlotValue) {
-  return !!v.plot && !plotBlockReason(v.plot, v.role) && (v.role !== 'PRIMARY' || paymentTermsReady(v.total_value, v.instalment_count))
+  return !!v.plot && !plotBlockReason(v.plot, v.role)
 }
 
+/** Payment terms aren't set here: they're entered when the primary buyer's KYC Step 2 (booking receipt) is approved. */
 export function toAssignPayload(email: string, v: AssignPlotValue): AssignPayload {
-  const primary = v.role === 'PRIMARY'
-  return {
-    email,
-    role: v.role,
-    total_value: primary && v.total_value ? v.total_value : undefined,
-    amount_paid_outside_app: primary && v.total_value && v.amount_paid_outside_app ? v.amount_paid_outside_app : undefined,
-    instalment_count: primary && v.total_value && v.instalment_count ? Number(v.instalment_count) : undefined,
-  }
+  return { email, role: v.role }
 }
 
-/** Project → plot → role (+ optional payment terms for a primary buyer). Controlled. */
+/** Project → plot → role. Controlled. */
 export function AssignPlotFields({ value, onChange }: { value: AssignPlotValue; onChange: (v: AssignPlotValue) => void }) {
   const [search, setSearch] = useState('')
   const [debounced, setDebounced] = useState('')
@@ -144,13 +127,7 @@ export function AssignPlotFields({ value, onChange }: { value: AssignPlotValue; 
                     <button
                       type="button"
                       disabled={!!blocked}
-                      onClick={() =>
-                        set({
-                          plot,
-                          // follow the plot's list price unless the admin typed their own value
-                          total_value: !value.total_value || value.total_value === value.plot?.price ? plot.price : value.total_value,
-                        })
-                      }
+                      onClick={() => set({ plot })}
                       className={clsx(
                         'flex w-full items-center gap-3 px-3 py-2 text-left transition-colors',
                         blocked ? 'cursor-not-allowed opacity-50' : 'hover:bg-gold-50/60',
@@ -186,28 +163,6 @@ export function AssignPlotFields({ value, onChange }: { value: AssignPlotValue; 
                 Showing {rows.length} of {plots?.count} — search to narrow down
               </p>
             )}
-          </div>
-        </div>
-      )}
-
-      {value.role === 'PRIMARY' && value.plot && (
-        <div className="space-y-3 rounded-lg border border-ink-100 bg-ink-50/40 p-3">
-          <div>
-            <p className="text-xs font-semibold text-ink-700">Payment terms</p>
-            <p className="text-xs text-ink-400">
-              The schedule is generated from these once the buyer&apos;s booking receipt (KYC Step 2) is approved, which becomes instalment 1.
-            </p>
-          </div>
-          <div className="grid grid-cols-3 gap-3">
-            <FieldWrap label="Total value" required>
-              <Input type="number" min={0} value={value.total_value} onChange={(e) => set({ total_value: e.target.value })} />
-            </FieldWrap>
-            <FieldWrap label="Paid outside app">
-              <Input type="number" min={0} value={value.amount_paid_outside_app} onChange={(e) => set({ amount_paid_outside_app: e.target.value })} placeholder="0" />
-            </FieldWrap>
-            <FieldWrap label="Instalments" required error={value.instalment_count && Number(value.instalment_count) < 2 ? 'At least 2' : undefined}>
-              <Input type="number" min={2} value={value.instalment_count} onChange={(e) => set({ instalment_count: e.target.value })} />
-            </FieldWrap>
           </div>
         </div>
       )}

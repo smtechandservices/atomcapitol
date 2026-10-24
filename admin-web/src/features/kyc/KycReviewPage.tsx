@@ -32,7 +32,7 @@ import type { KYCStepStatus, KycQueueDetail } from '@/types'
 import { useCan } from '@/lib/permissions'
 import { downloadMedia } from '@/lib/download'
 import { downloadDocument } from '@/features/documents/api'
-import { useDecideKyc, useKycSubmission, type KycDecisionPayload, type ReceiptEntry } from './api'
+import { useDecideKyc, useKycSubmission, useSchedulePreview, type KycDecisionPayload, type PaymentTerms, type ReceiptEntry } from './api'
 import { ReceiptEntriesModal } from './ReceiptEntriesModal'
 import { STEP_LABELS, ageTone, initialsOf } from './shared'
 
@@ -67,6 +67,7 @@ function ReviewScreen({ id }: { id: string }) {
   const toast = useToast()
   const { data: s, isLoading, error } = useKycSubmission(id)
   const decide = useDecideKyc(Number(id))
+  const schedulePreview = useSchedulePreview(Number(id))
   const [busy, setBusy] = useState<string | null>(null)
   const [receiptOpen, setReceiptOpen] = useState(false)
   const canSeeCustomers = useCan()('customers')
@@ -74,7 +75,9 @@ function ReviewScreen({ id }: { id: string }) {
   if (isLoading) return <FullPageSpinner />
   if (error || !s) return <ErrorState message={apiErrorMessage(error, 'Submission not found')} />
 
-  const bothPending = s.step2_status === 'PENDING' && s.step3_status === 'PENDING'
+  // Approving the primary buyer's Step 2 sets the plot's payment terms, so it has to go through the review modal.
+  const needsTerms = !!s.plot_terms?.needs_terms
+  const bothPending = s.step2_status === 'PENDING' && s.step3_status === 'PENDING' && !needsTerms
   const flagged = !s.plot_confirmed && s.step2_status !== null
   const waitingSince = s.step2_status === 'PENDING' ? s.step2_submitted_at : s.step3_status === 'PENDING' ? s.step3_submitted_at : null
 
@@ -112,8 +115,13 @@ function ReviewScreen({ id }: { id: string }) {
       `${STEP_LABELS[step]} ${decision === 'APPROVED' ? 'approved' : 'rejected'}`,
     )
 
-  const approveWithReceipt = (entries: ReceiptEntry[]) =>
-    submit('STEP2-RECEIPT', { step2_decision: 'APPROVED', receipt_entries: entries }, 'Step 2 approved — payment receipt generated', true)
+  const approveWithReceipt = (entries: ReceiptEntry[], terms?: PaymentTerms) =>
+    submit(
+      'STEP2-RECEIPT',
+      { step2_decision: 'APPROVED', receipt_entries: entries, ...terms },
+      terms ? 'Step 2 approved — milestones created and receipt generated' : 'Step 2 approved — payment receipt generated',
+      true,
+    )
 
   return (
     <div className="space-y-5">
@@ -193,7 +201,10 @@ function ReviewScreen({ id }: { id: string }) {
           <Info label="Plot" value={s.plot.plot_number} />
           <Info label="Size" value={s.plot.size} />
           <Info label="Block / sector" value={s.plot.block_sector || '—'} />
-          <Info label="Total value" value={formatCurrency(s.plot.total_value)} />
+          <Info
+            label={s.plot_terms?.total_value ? 'Offered price' : 'List price'}
+            value={formatCurrency(s.plot_terms?.total_value ?? s.plot_terms?.price ?? s.plot.total_value)}
+          />
         </Card>
       )}
 
@@ -220,7 +231,11 @@ function ReviewScreen({ id }: { id: string }) {
           </div>
           <div className="space-y-5 p-5 lg:col-span-2">
             <dl className="grid grid-cols-2 gap-4 text-sm">
-              <Info label="Receipt amount" value={formatCurrency(s.receipt_amount)} />
+              <Info
+                label={s.plot_terms?.total_value ? 'Offered price' : 'List price'}
+                value={formatCurrency(s.plot_terms?.total_value ?? s.plot_terms?.price)}
+              />
+              <Info label="Paid outside app (claimed)" value={formatCurrency(s.receipt_amount)} />
               <Info label="Payment date" value={formatDate(s.receipt_payment_date)} />
               <Info
                 label="Plot confirmed"
@@ -242,6 +257,7 @@ function ReviewScreen({ id }: { id: string }) {
               busy={busy}
               onDecide={(d, reason) => decideStep('STEP2', d, reason)}
               onApproveWithReceipt={() => setReceiptOpen(true)}
+              reviewOnly={needsTerms}
             />
             {s.first_payment_receipt && <GeneratedReceipt receipt={s.first_payment_receipt} plotNumber={s.plot?.plot_number} />}
           </div>
@@ -255,6 +271,16 @@ function ReviewScreen({ id }: { id: string }) {
         loading={busy === 'STEP2-RECEIPT'}
         initialAmount={s.receipt_amount}
         initialDate={s.receipt_payment_date}
+        terms={
+          needsTerms
+            ? {
+                initialTotal: s.plot_terms?.total_value ?? s.plot_terms?.price ?? '',
+                initialInstalments: s.plot_terms?.instalment_count ? String(s.plot_terms.instalment_count) : '',
+                listPrice: s.plot_terms?.price,
+                preview: schedulePreview.mutateAsync,
+              }
+            : undefined
+        }
       />
 
       {/* Step 3 — video */}
@@ -373,6 +399,7 @@ function DecisionPanel({
   approveHint,
   onDecide,
   onApproveWithReceipt,
+  reviewOnly,
 }: {
   step: Step
   status: KYCStepStatus | null
@@ -382,6 +409,8 @@ function DecisionPanel({
   onDecide: (d: Decision, reason: string) => void
   /** Step 2 only: approve and issue the first-payment receipt PDF (opens the payment entries form). */
   onApproveWithReceipt?: () => void
+  /** Approving needs payment terms + a milestone review, so only the receipt modal can approve. */
+  reviewOnly?: boolean
 }) {
   const [reason, setReason] = useState('')
 
@@ -425,12 +454,22 @@ function DecisionPanel({
         <Textarea rows={2} className="min-h-16" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Pick a reason above or write one — the customer sees this" />
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <Button variant="secondary" loading={busy === `${step}-APPROVED`} disabled={!!busy} onClick={() => onDecide('APPROVED', '')}>
-          <CheckCircle2 className="size-4" /> Approve
-        </Button>
+        {!reviewOnly && (
+          <Button variant="secondary" loading={busy === `${step}-APPROVED`} disabled={!!busy} onClick={() => onDecide('APPROVED', '')}>
+            <CheckCircle2 className="size-4" /> Approve
+          </Button>
+        )}
         {onApproveWithReceipt && (
-          <Button variant="outline" disabled={!!busy} onClick={onApproveWithReceipt}>
-            <FileText className="size-4" /> Approve &amp; generate receipt
+          <Button variant={reviewOnly ? 'secondary' : 'outline'} disabled={!!busy} onClick={onApproveWithReceipt}>
+            {reviewOnly ? (
+              <>
+                <ListChecks className="size-4" /> Review milestones &amp; approve
+              </>
+            ) : (
+              <>
+                <FileText className="size-4" /> Approve &amp; generate receipt
+              </>
+            )}
           </Button>
         )}
         <Button variant="danger" loading={busy === `${step}-REJECTED`} disabled={!!busy || !reason.trim()} onClick={() => onDecide('REJECTED', reason.trim())}>
