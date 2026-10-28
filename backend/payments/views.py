@@ -54,7 +54,7 @@ class CustomerPaymentsView(APIView):
         if status_filter:
             milestones = milestones.filter(status=status_filter.upper())
 
-        paid_total = (plot.milestones.filter(status=Milestone.Status.PAID).aggregate(t=Sum("amount"))["t"] or 0) + services.outside_app_collected(plot)
+        paid_total = services.plot_paid_total(plot)
         remaining_qs = plot.milestones.exclude(status=Milestone.Status.PAID)
         next_due = plot.milestones.filter(status__in=[Milestone.Status.DUE, Milestone.Status.OVERDUE]).order_by("due_date").first()
 
@@ -142,6 +142,11 @@ class AdminMilestoneViewSet(viewsets.ModelViewSet):
     search_fields = ["plot__plot_number", "name", "plot__customers__email", "plot__customers__name"]
     ordering_fields = ["due_date", "amount", "sequence"]
     ordering = ["plot", "sequence"]
+
+    def perform_update(self, serializer):
+        # Marking an instalment paid by hand counts towards the allotment letter like an approved proof does.
+        milestone = serializer.save()
+        services.after_payment_recorded(milestone.plot)
 
     def filter_queryset(self, queryset):
         # Searching across plot__customers joins one row per buyer; collapse duplicates.

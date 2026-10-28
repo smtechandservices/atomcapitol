@@ -49,6 +49,27 @@ def outside_app_collected(plot):
     return outside_app_not_scheduled(plot)
 
 
+def plot_paid_total(plot):
+    """Everything the buyer has paid: paid instalments plus money paid outside the app (see outside_app_collected)."""
+    paid = plot.milestones.filter(status=Milestone.Status.PAID).aggregate(t=Sum("amount"))["t"] or Decimal(0)
+    return paid + outside_app_collected(plot)
+
+
+def after_payment_recorded(plot):
+    """Follow-ups once money is recorded against a plot: the allotment letter at 50% paid."""
+    from documents.services import issue_allotment_letter_if_due
+
+    issue_allotment_letter_if_due(plot)
+
+
+def resplit_after_price_change(plot):
+    """The plot's total value changed: spread the new balance over the unpaid instalments so the plan adds up."""
+    if plot.total_value and plot.milestones.exclude(status__in=[Milestone.Status.PAID, Milestone.Status.UNDER_REVIEW]).exists():
+        _resplit_unpaid(plot)
+        refresh_plot_milestone_statuses(plot)
+    after_payment_recorded(plot)
+
+
 def pending_booking_payment(plot):
     """Instalment 1 (the booking payment) before KYC Step 2 approval creates it: the receipt amount the primary buyer
     submitted, else the amount paid outside the app. None once instalment 1 exists, or with nothing to go on.
@@ -72,23 +93,30 @@ def pending_booking_payment(plot):
 SCHEDULE_STEPS = {"MONTHLY": relativedelta(months=1), "WEEKLY": relativedelta(weeks=1)}
 
 
-def schedule_rows(remaining, instalment_count, start_date=None, frequency="MONTHLY", due_dates=None):
+def schedule_rows(remaining, instalment_count, start_date=None, frequency="MONTHLY", due_dates=None, amounts=None):
     """Instalments 2..instalment_count as {sequence, name, amount, due_date}: `remaining` split evenly, one per
-    month (or week) from `start_date` (default one step from today). `due_dates`, one per instalment, replace the
-    computed dates. Shared by generate_milestone_schedule and the KYC Step 2 preview.
+    month (or week) from `start_date` (default one step from today). `due_dates` and `amounts`, one per instalment,
+    replace the computed dates and the even split; `amounts` must add up to `remaining`.
+    Shared by generate_milestone_schedule and the KYC Step 2 preview.
     """
     n = instalment_count
     step = SCHEDULE_STEPS[frequency]
     start = start_date or (date.today() + step)
     dates = due_dates or [start + step * k for k in range(n - 1)]
+    if amounts:
+        planned = sum(Decimal(a) for a in amounts)
+        if abs(planned - remaining) >= 1:
+            raise PaymentError(
+                f"The instalments add up to ₹{planned:,.2f} but ₹{remaining:,.2f} is left to pay.", "schedule_total_mismatch"
+            )
     return [
         {"sequence": i, "name": f"Instalment {i} of {n}", "amount": amount, "due_date": due}
-        for i, amount, due in zip(range(2, n + 1), _split(remaining, n - 1), dates)
+        for i, amount, due in zip(range(2, n + 1), amounts or _split(remaining, n - 1), dates)
     ]
 
 
 @transaction.atomic
-def generate_milestone_schedule(plot, start_date=None, frequency="MONTHLY", due_dates=None):
+def generate_milestone_schedule(plot, start_date=None, frequency="MONTHLY", due_dates=None, amounts=None):
     """Splits what's left after the booking instalment into instalments 2..instalment_count,
     monthly or weekly (see schedule_rows). If the buyer's KYC receipt is already approved, it's recorded as instalment 1 first.
     """
@@ -106,7 +134,7 @@ def generate_milestone_schedule(plot, start_date=None, frequency="MONTHLY", due_
 
     milestones = [
         Milestone(plot=plot, status=Milestone.Status.UPCOMING, **row)
-        for row in schedule_rows(remaining, n, start_date, frequency, due_dates)
+        for row in schedule_rows(remaining, n, start_date, frequency, due_dates, amounts)
     ]
     Milestone.objects.bulk_create(milestones)
     refresh_plot_milestone_statuses(plot)
@@ -117,7 +145,7 @@ def ensure_schedule(plot, **schedule_options):
     """Generates instalments 2..instalment_count once the plot has payment terms AND its primary buyer's booking
     receipt (KYC Step 2) is approved, so instalment 2 falls due a month after approval instead of a month after the
     plot was assigned. Called on assignment and on Step 2 approval; a no-op until both hold, or once a schedule exists.
-    `schedule_options` (frequency, due_dates) go to generate_milestone_schedule.
+    `schedule_options` (frequency, due_dates, amounts) go to generate_milestone_schedule.
     """
     from kyc.models import KYCSubmission, StepStatus
 
@@ -205,6 +233,7 @@ def record_kyc_instalment(submission, *, resplit=True, receipt_entries=None):
     if resplit and plot.total_value:
         _resplit_unpaid(plot)
     refresh_plot_milestone_statuses(plot)
+    after_payment_recorded(plot)
     return milestone
 
 
@@ -328,6 +357,7 @@ def approve_payment_proof(proof, admin_user, *, bank, transaction_reference, pay
         details = {"milestone_amount": str(previous_amount), "paid_amount": str(paid_amount), "schedule": _jsonable_schedule(schedule)}
     AuditLog.record(admin_user, "payment_proof.approve", target=proof, details=details, ip_address=None)
     refresh_plot_milestone_statuses(milestone.plot)
+    after_payment_recorded(milestone.plot)
     return proof
 
 

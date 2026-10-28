@@ -59,6 +59,10 @@ export interface ProjectFormValues {
   latitude?: string | null
   longitude?: string | null
   amenities: string[]
+  phases: string[]
+  legal_fee: string
+  registry_charges: string
+  development_charges: string
 }
 
 export function useCreateProject() {

@@ -103,7 +103,7 @@ export function CustomersPage() {
               <span className="rounded-full border border-dashed border-gold-300 px-1.5 py-0.5 text-[10px] font-medium text-gold-800">Claims</span>
               <span className="max-w-[150px] truncate">{c.claimed_plot.plot_number}</span>
             </p>
-            <p className="max-w-[200px] truncate text-xs text-ink-400">{c.claimed_plot.project}</p>
+            <p className="max-w-[200px] truncate text-xs text-ink-400">{[c.claimed_plot.project, c.claimed_plot.phase].filter(Boolean).join(' · ')}</p>
           </div>
         ) : (
           <span className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-ink-200 px-2 py-0.5 text-xs text-ink-400">No plot</span>

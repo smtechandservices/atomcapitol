@@ -243,3 +243,75 @@ def generate_receipt_document(milestone, proof, amount, entries=None, *, custome
         deep_link=f"document:{document.id}",
     )
     return document
+
+
+# Share of total_value a buyer must have paid before their allotment letter is issued.
+ALLOTMENT_THRESHOLD = Decimal("0.5")
+
+
+def render_allotment_letter_pdf(plot, customer, *, paid, letter_date=None):
+    settings_obj = SiteSettings.load()
+    pdf = _ReceiptCanvas()
+    pdf.title("ALLOTMENT LETTER")
+    pdf.details(
+        [
+            ("Date", _ddmmyyyy(letter_date or date.today())),
+            ("Allottee", customer.name or customer.email),
+            ("Project Name", plot.project.name),
+            ("Plot No.", plot.plot_number),
+            ("Total Area", _area(plot.size)),
+            ("Plot Address", plot.project.location or "-"),
+            ("Sale Consideration", _inr(plot.total_value)),
+            ("Amount Received", _inr(paid)),
+        ]
+    )
+    body = (
+        f"We are pleased to confirm the allotment of Plot No. {plot.plot_number} in {plot.project.name} to "
+        f"{customer.name or customer.email}, against the payments received so far. The balance sale consideration "
+        f"is payable as per the agreed payment schedule. Registry charges, legal fees and development charges are "
+        f"additional and payable as applicable."
+    )
+    c = pdf.c
+    c.setFont("Helvetica", 10.5)
+    for line in _wrap(body, "Helvetica", 10.5, PAGE_W - 2 * LEFT):
+        c.drawString(LEFT, pdf.y, line.strip())
+        pdf.y -= 15
+    pdf.y -= 10
+    pdf.signature(settings_obj.receipt_template_note)
+    pdf.terms(settings_obj.receipt_terms)
+    return pdf.finish()
+
+
+def issue_allotment_letter_if_due(plot):
+    """Issues the allotment letter to each buyer on the plot (primary and co-applicants) once at least half of
+    total_value is paid. Each buyer gets it once; later payments don't re-issue it."""
+    from payments.services import plot_paid_total
+
+    if not plot or not plot.total_value:
+        return []
+    paid = plot_paid_total(plot)
+    if paid < plot.total_value * ALLOTMENT_THRESHOLD:
+        return []
+
+    issued = []
+    for customer in plot.customers.filter(is_active=True):
+        if customer.documents.filter(doc_type=Document.DocType.ALLOTMENT_LETTER, project=plot.project).exists():
+            continue
+        document = Document.objects.create(
+            customer=customer,
+            project=plot.project,
+            name=f"Allotment Letter - Plot {plot.plot_number}",
+            doc_type=Document.DocType.ALLOTMENT_LETTER,
+            status=Document.DocStatus.ISSUED,
+        )
+        pdf_bytes = render_allotment_letter_pdf(plot, customer, paid=paid)
+        document.file.save(f"allotment_letter_{plot.plot_number}_{customer.id}.pdf", ContentFile(pdf_bytes), save=True)
+        notify_customer(
+            customer,
+            "DOCUMENT_UPLOADED",
+            "Your allotment letter is ready",
+            f"Your allotment letter for plot {plot.plot_number} is now available in Documents.",
+            deep_link=f"document:{document.id}",
+        )
+        issued.append(document)
+    return issued

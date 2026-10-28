@@ -83,8 +83,16 @@ export function CoverPlaceholder({ name, className }: { name: string; className?
   )
 }
 
-/** Chip input for amenities: Enter or comma adds, Backspace on empty removes last. */
-export function AmenitiesInput({ value, onChange }: { value: string[]; onChange: (next: string[]) => void }) {
+/** Chip input for amenities (and phases): Enter or comma adds, Backspace on empty removes last. */
+export function AmenitiesInput({
+  value,
+  onChange,
+  placeholder = 'e.g. Clubhouse, 24x7 security',
+}: {
+  value: string[]
+  onChange: (next: string[]) => void
+  placeholder?: string
+}) {
   const [draft, setDraft] = useState('')
 
   const commit = (raw: string) => {
@@ -123,7 +131,7 @@ export function AmenitiesInput({ value, onChange }: { value: string[]; onChange:
         onChange={(e) => setDraft(e.target.value)}
         onKeyDown={onKeyDown}
         onBlur={() => commit(draft)}
-        placeholder={value.length ? 'Add another…' : 'e.g. Clubhouse, 24x7 security'}
+        placeholder={value.length ? 'Add another…' : placeholder}
         className="min-w-[140px] flex-1 border-0 bg-transparent px-1 py-0.5 text-sm text-ink-800 placeholder:text-ink-300 focus:outline-none"
       />
     </div>
@@ -138,6 +146,10 @@ export const emptyProjectForm: ProjectFormValues = {
   latitude: '',
   longitude: '',
   amenities: [],
+  phases: [],
+  legal_fee: '',
+  registry_charges: '',
+  development_charges: '',
 }
 
 export function projectToForm(p: Project): ProjectFormValues {
@@ -149,6 +161,10 @@ export function projectToForm(p: Project): ProjectFormValues {
     latitude: p.latitude ?? '',
     longitude: p.longitude ?? '',
     amenities: p.amenities,
+    phases: p.phases,
+    legal_fee: p.legal_fee,
+    registry_charges: p.registry_charges,
+    development_charges: p.development_charges,
   }
 }
 
@@ -247,6 +263,28 @@ export function ProjectFormModal({
           <h4 className="text-xs font-semibold uppercase tracking-wide text-ink-400">Amenities</h4>
           <AmenitiesInput value={form.amenities} onChange={(v) => set('amenities', v)} />
           <p className="text-xs text-ink-400">Press Enter or comma to add.</p>
+        </section>
+
+        <section className="space-y-3">
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-ink-400">Phases</h4>
+          <AmenitiesInput value={form.phases} onChange={(v) => set('phases', v)} placeholder="e.g. Phase 1, Phase 2" />
+          <p className="text-xs text-ink-400">Buyers pick their phase from this list in KYC. Leave empty if the project has no phases.</p>
+        </section>
+
+        <section className="space-y-3">
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-ink-400">Additional charges</h4>
+          <p className="text-xs text-ink-400">Shown to buyers in the app for their knowledge. These aren&apos;t added to the plot price.</p>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <FieldWrap label="Legal fee">
+              <Input value={form.legal_fee} onChange={(e) => set('legal_fee', e.target.value)} placeholder="e.g. ₹25,000 + GST" />
+            </FieldWrap>
+            <FieldWrap label="Registry charges">
+              <Input value={form.registry_charges} onChange={(e) => set('registry_charges', e.target.value)} placeholder="As per govt. rates" />
+            </FieldWrap>
+            <FieldWrap label="Development charges">
+              <Input value={form.development_charges} onChange={(e) => set('development_charges', e.target.value)} placeholder="e.g. ₹500 / sq. yd" />
+            </FieldWrap>
+          </div>
         </section>
 
         <section className="space-y-3">

@@ -66,9 +66,18 @@ export interface PlotFormValues {
   plot_number: string
   size: string
   block_sector?: string
+  phase?: string
   rate_per_sq_yd: string
   plc_percent: string
   plc_type?: string
+}
+
+/** Prices a super admin can change at any time, on top of the plot's attributes. */
+export interface PlotPriceValues {
+  /** List price typed by hand; the backend stops deriving it from size x rate x PLC. */
+  price?: string
+  /** Selling (offered) price; the unpaid instalments are re-split to match. */
+  total_value?: string
 }
 
 export function useCreatePlot() {
@@ -85,13 +94,15 @@ export function useCreatePlot() {
 export function useUpdatePlot() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async ({ id, values }: { id: number; values: Partial<PlotFormValues> & { status?: string } }) => {
+    mutationFn: async ({ id, values }: { id: number; values: Partial<PlotFormValues> & PlotPriceValues & { status?: string } }) => {
       const { data } = await api.patch<Plot>(`/admin/plots/${id}/`, values)
       return data
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['plots'] })
       qc.invalidateQueries({ queryKey: ['project'] })
+      // A new selling price re-splits the unpaid instalments.
+      qc.invalidateQueries({ queryKey: ['milestones'] })
     },
   })
 }

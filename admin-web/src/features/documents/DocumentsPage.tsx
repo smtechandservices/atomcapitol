@@ -4,7 +4,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import clsx from 'clsx'
 import {
-  AlertTriangle,
+  Award,
   Building2,
   CheckCircle2,
   ChevronRight,
@@ -52,18 +52,29 @@ const TYPE_META: Record<DocumentType, { label: string; plural: string; icon: Rea
   },
   REGISTRY: { label: 'Registry', plural: 'Registry', icon: <Landmark className="size-4" />, tile: 'bg-sky-50 text-sky-600', chip: 'bg-sky-50 text-sky-700 ring-sky-200' },
   LEGAL: { label: 'Legal', plural: 'Legal', icon: <Scale className="size-4" />, tile: 'bg-violet-50 text-violet-600', chip: 'bg-violet-50 text-violet-700 ring-violet-200' },
+  ALLOTMENT_LETTER: {
+    label: 'Allotment letter',
+    plural: 'Allotment',
+    icon: <Award className="size-4" />,
+    tile: 'bg-gold-50 text-gold-700',
+    chip: 'bg-gold-50 text-gold-800 ring-gold-200',
+  },
+  PROJECT: { label: 'Project', plural: 'Project', icon: <Building2 className="size-4" />, tile: 'bg-teal-50 text-teal-600', chip: 'bg-teal-50 text-teal-700 ring-teal-200' },
   OTHER: { label: 'Other', plural: 'Other', icon: <FileText className="size-4" />, tile: 'bg-ink-50 text-ink-500', chip: 'bg-ink-50 text-ink-600 ring-ink-200' },
 }
 
 const NAME_PRESETS: Record<Exclude<DocumentType, 'PAYMENT_RECEIPT'>, string[]> = {
   REGISTRY: ['Sale Deed', 'Registry Copy', 'Mutation Certificate'],
-  LEGAL: ['Allotment Letter', 'Agreement to Sell', 'Builder Buyer Agreement', 'NOC', 'Possession Letter'],
+  LEGAL: ['Agreement to Sell', 'Builder Buyer Agreement', 'NOC', 'Possession Letter'],
+  // Issued automatically once a buyer has paid 50%; upload here only to replace one.
+  ALLOTMENT_LETTER: ['Allotment Letter'],
+  PROJECT: ['Layout Plan', 'RERA Certificate', 'Approval Letter', 'Brochure'],
   OTHER: ['Welcome Letter', 'Site Visit Report'],
 }
 
-/** Customers only see documents attached to them (customer = me), so project-only documents never reach the app. */
-type Visibility = 'visible' | 'hidden' | 'project-only'
-const visibilityOf = (d: DocumentItem): Visibility => (!d.customer ? 'project-only' : d.is_visible_to_customer ? 'visible' : 'hidden')
+/** A document with no customer is project-wide: every buyer in that project sees it while it's visible. */
+type Visibility = 'visible' | 'hidden'
+const visibilityOf = (d: DocumentItem): Visibility => (d.is_visible_to_customer ? 'visible' : 'hidden')
 
 export function DocumentsPage() {
   const [page, setPage] = useState(1)
@@ -319,18 +330,12 @@ function VisibilityCell({ doc }: { doc: DocumentItem }) {
   if (v === 'visible')
     return (
       <span className="inline-flex items-center gap-1.5 text-xs text-ink-600">
-        <Eye className="size-3.5 text-emerald-600" /> Visible
-      </span>
-    )
-  if (v === 'hidden')
-    return (
-      <span className="inline-flex items-center gap-1.5 text-xs text-ink-400">
-        <EyeOff className="size-3.5" /> Hidden
+        <Eye className="size-3.5 text-emerald-600" /> {doc.customer ? 'Visible' : 'All buyers'}
       </span>
     )
   return (
-    <span className="inline-flex items-center gap-1.5 text-xs text-amber-700" title="The app only shows documents attached to the customer, so project-wide documents aren't shown to anyone">
-      <AlertTriangle className="size-3.5" /> Not in app
+    <span className="inline-flex items-center gap-1.5 text-xs text-ink-400">
+      <EyeOff className="size-3.5" /> Hidden
     </span>
   )
 }
@@ -464,17 +469,10 @@ function DocumentDrawer({ doc: d, onClose }: { doc: DocumentItem; onClose: () =>
               }
             />
           )}
-          {v === 'project-only' ? (
-            <ActionRow
-              icon={<AlertTriangle className="size-4 text-amber-600" />}
-              title="Not shown in the customer app"
-              body="This document is attached to a project, not a customer. The app only lists documents attached to the signed-in customer."
-            />
-          ) : (
             <ActionRow
               icon={v === 'visible' ? <Eye className="size-4 text-emerald-600" /> : <EyeOff className="size-4 text-ink-400" />}
-              title={v === 'visible' ? 'Visible to the customer' : 'Hidden from the customer'}
-              body={v === 'visible' ? 'Shown in their Documents tab in the app.' : 'Only admins can see it.'}
+              title={v === 'visible' ? (d.customer ? 'Visible to the customer' : 'Visible to every buyer in the project') : 'Hidden from customers'}
+              body={v === 'visible' ? 'Shown in the Documents tab in the app.' : 'Only admins can see it.'}
               action={
                 <Button
                   size="sm"
@@ -486,7 +484,6 @@ function DocumentDrawer({ doc: d, onClose }: { doc: DocumentItem; onClose: () =>
                 </Button>
               }
             />
-          )}
         </div>
 
         <dl className="grid grid-cols-2 gap-4 text-sm">
@@ -583,7 +580,7 @@ function UploadDocumentModal({ onClose, onCreated }: { onClose: () => void; onCr
         doc_type: docType,
         status,
         file: file ?? undefined,
-        is_visible_to_customer: target === 'customer' ? visible : false,
+        is_visible_to_customer: visible,
       })
       toast.success('Document uploaded')
       onClose()
@@ -632,9 +629,9 @@ function UploadDocumentModal({ onClose, onCreated }: { onClose: () => void; onCr
                   </option>
                 ))}
               </Select>
-              <p className="flex gap-1.5 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
-                Project-wide documents are kept for admins only — the customer app lists documents attached to each customer.
+              <p className="flex gap-1.5 rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-800">
+                <Building2 className="mt-0.5 size-3.5 shrink-0" />
+                Every buyer with a plot in this project sees project-wide documents in their app while they&apos;re visible.
               </p>
             </>
           )}
@@ -648,7 +645,7 @@ function UploadDocumentModal({ onClose, onCreated }: { onClose: () => void; onCr
                 setDocType(t)
                 if (!name || Object.values(NAME_PRESETS).flat().includes(name)) setName('')
               }}
-              options={(['REGISTRY', 'LEGAL', 'OTHER'] as const).map((t) => ({ value: t, label: TYPE_META[t].label, icon: TYPE_META[t].icon }))}
+              options={(['REGISTRY', 'LEGAL', 'ALLOTMENT_LETTER', 'PROJECT', 'OTHER'] as const).map((t) => ({ value: t, label: TYPE_META[t].label, icon: TYPE_META[t].icon }))}
             />
           </FieldWrap>
           <FieldWrap label="Document name" required>
@@ -686,8 +683,7 @@ function UploadDocumentModal({ onClose, onCreated }: { onClose: () => void; onCr
                 ]}
               />
             </FieldWrap>
-            {target === 'customer' && (
-              <FieldWrap label="Customer app">
+            <FieldWrap label="Customer app">
                 <label className="flex h-[38px] cursor-pointer items-center justify-between gap-3 rounded-lg border border-ink-200 px-3">
                   <span className="text-sm text-ink-700">{visible ? 'Visible to customer' : 'Hidden'}</span>
                   <button
@@ -701,7 +697,6 @@ function UploadDocumentModal({ onClose, onCreated }: { onClose: () => void; onCr
                   </button>
                 </label>
               </FieldWrap>
-            )}
           </div>
         </section>
       </div>

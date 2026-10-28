@@ -20,6 +20,15 @@ from .serializers import AdminDocumentSerializer, DocumentSerializer
 # ---------------------------------------------------------------------------
 # CustomerApp — 5.7 Documents
 # ---------------------------------------------------------------------------
+def customer_documents(customer):
+    """The buyer's own documents, plus those shared with everyone in their plot's project (no customer set)."""
+    mine = Q(customer=customer)
+    plot = customer.assigned_plot
+    if plot is not None:
+        mine |= Q(customer__isnull=True, project_id=plot.project_id)
+    return Document.objects.filter(mine, is_visible_to_customer=True)
+
+
 class CustomerDocumentListView(generics.ListAPIView):
     queryset = Document.objects.none()
     serializer_class = DocumentSerializer
@@ -28,7 +37,7 @@ class CustomerDocumentListView(generics.ListAPIView):
     filterset_fields = ["doc_type", "status"]
 
     def get_queryset(self):
-        return Document.objects.filter(customer=self.request.user, is_visible_to_customer=True).order_by("-created_at")
+        return customer_documents(self.request.user).order_by("-created_at")
 
 
 class CustomerDocumentDetailView(generics.RetrieveAPIView):
@@ -36,7 +45,7 @@ class CustomerDocumentDetailView(generics.RetrieveAPIView):
     permission_classes = [IsKYCApproved]
 
     def get_queryset(self):
-        return Document.objects.filter(customer=self.request.user, is_visible_to_customer=True)
+        return customer_documents(self.request.user)
 
 
 # ---------------------------------------------------------------------------

@@ -81,6 +81,10 @@ class SiteSettings(models.Model):
     """Singleton row of global settings shown to customers / used by the app."""
 
     company_name = models.CharField(max_length=200, default="Atom Capitol")
+    # Shown on the customer app's home screen.
+    company_about = models.TextField(blank=True)
+    company_address = models.TextField(blank=True)
+    company_website = models.URLField(blank=True)
     support_phone = models.CharField(max_length=30, blank=True)
     support_email = models.EmailField(blank=True)
     bank_account_name = models.CharField(max_length=200, blank=True)

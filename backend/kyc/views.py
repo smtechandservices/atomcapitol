@@ -32,19 +32,22 @@ from .serializers import (
 # CustomerApp — onboarding
 # ---------------------------------------------------------------------------
 class KYCStep1View(APIView):
-    """KYC Step 1 — only for customers without a plot: name, phone, the plot they bought, Aadhaar / PAN."""
+    """KYC Step 1, the first KYC screen: plot and booking payment, the buyer's documents, an optional co-applicant,
+    their sales person and the T&C. Buyers without a plot also pick the project / phase and type the plot number."""
 
     permission_classes = [IsCustomerUser]
     parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request):
-        if request.user.assigned_plot_id is not None:
+        existing = KYCSubmission.objects.filter(customer=request.user).first()
+        if not services.step1_open(request.user, existing):
             return Response(
-                {"detail": "Your plot is already assigned. Continue with the next KYC step.", "errors": {"code": "plot_already_assigned"}},
+                {"detail": "Your details are with our team for review. Continue with the next KYC step.", "errors": {"code": "step1_locked"}},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        existing = KYCSubmission.objects.filter(customer=request.user).first()
-        serializer = KYCStep1Serializer(data=request.data, context={"submission": existing})
+        serializer = KYCStep1Serializer(
+            data=request.data, context={"submission": existing, "has_plot": request.user.assigned_plot_id is not None}
+        )
         serializer.is_valid(raise_exception=True)
         submission = services.submit_step1(request.user, **serializer.validated_data)
         return Response(KYCStatusSerializer(submission).data, status=status.HTTP_201_CREATED)
@@ -77,9 +80,9 @@ class KYCStep2View(APIView):
             request.user,
             plot_confirmed=data["plot_confirmed"],
             plot_mismatch_note=data.get("plot_mismatch_note", ""),
-            receipt_file=data["receipt_file"],
-            receipt_amount=data["receipt_amount"],
-            receipt_payment_date=data["receipt_payment_date"],
+            receipt_file=data.get("receipt_file"),
+            receipt_amount=data.get("receipt_amount"),
+            receipt_payment_date=data.get("receipt_payment_date"),
             aadhaar_front=data.get("aadhaar_front"),
             aadhaar_back=data.get("aadhaar_back"),
             pan_card=data.get("pan_card"),
@@ -88,7 +91,7 @@ class KYCStep2View(APIView):
 
 
 class KYCStep3View(APIView):
-    """4.6 Video KYC (Step 3) — in-app live recording only."""
+    """4.6 Video KYC (Step 3) — in-app live recording only. Optional: DELETE withdraws a video not yet approved."""
 
     permission_classes = [IsCustomerWithPlot]
     parser_classes = [MultiPartParser, FormParser]
@@ -105,6 +108,12 @@ class KYCStep3View(APIView):
         serializer.is_valid(raise_exception=True)
         submission = services.submit_step3(request.user, video_file=serializer.validated_data["video_file"])
         return Response(KYCStatusSerializer(submission).data, status=status.HTTP_201_CREATED)
+
+    def delete(self, request):
+        submission = services.get_or_create_submission(request.user)
+        if submission.step3_status == StepStatus.APPROVED:
+            return Response({"detail": "Your video is already approved.", "errors": {"code": "already_approved"}}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(KYCStatusSerializer(services.skip_step3(request.user)).data)
 
 
 class KYCStatusView(generics.RetrieveAPIView):
@@ -283,5 +292,9 @@ class KYCSchedulePreviewView(APIView):
             )
 
         rows = [{"sequence": KYC_INSTALMENT_SEQUENCE, "name": f"Instalment 1 of {n}", "status": "PAID", **first}]
-        rows += [{**row, "status": "UPCOMING"} for row in schedule_rows(data["total_value"] - first["amount"], n, frequency=data["frequency"])]
+        try:
+            rest = schedule_rows(data["total_value"] - first["amount"], n, frequency=data["frequency"], amounts=data.get("amounts"))
+        except PaymentError as exc:
+            return Response({"detail": exc.message, "errors": {"code": exc.code}}, status=status.HTTP_400_BAD_REQUEST)
+        rows += [{**row, "status": "UPCOMING"} for row in rest]
         return Response({"milestones": [{**r, "amount": str(r["amount"])} for r in rows]})

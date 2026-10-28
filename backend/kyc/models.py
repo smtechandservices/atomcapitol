@@ -1,7 +1,7 @@
 from django.db import models
 
 from core.models import TimeStampedModel
-from core.validators import validate_identity_file, validate_receipt_file, validate_video_file
+from core.validators import validate_identity_file, validate_image_file, validate_receipt_file, validate_video_file
 
 
 class StepStatus(models.TextChoices):
@@ -22,8 +22,26 @@ class KYCSubmission(TimeStampedModel):
     claimed_project = models.CharField(max_length=200, blank=True)
     claimed_plot_number = models.CharField(max_length=50, blank=True)
     step1_submitted_at = models.DateTimeField(null=True, blank=True)
+    # Picked from the project / phase dropdowns; claimed_project keeps the project's name as text.
+    selected_project = models.ForeignKey("projects.Project", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    claimed_phase = models.CharField(max_length=100, blank=True)
 
-    # Step 2 — plot confirmation + first payment receipt
+    # Also from Step 1 (the first KYC screen), for every buyer — with a plot or not.
+    photo = models.FileField(upload_to="kyc/identity/", null=True, blank=True, validators=[validate_image_file])
+    cancelled_cheque = models.FileField(upload_to="kyc/identity/", null=True, blank=True, validators=[validate_identity_file])
+    co_applicant_name = models.CharField(max_length=200, blank=True)
+    co_applicant_phone = models.CharField(max_length=20, blank=True)
+    co_applicant_email = models.EmailField(blank=True)
+    co_applicant_aadhaar_front = models.FileField(upload_to="kyc/identity/", null=True, blank=True, validators=[validate_identity_file])
+    co_applicant_aadhaar_back = models.FileField(upload_to="kyc/identity/", null=True, blank=True, validators=[validate_identity_file])
+    co_applicant_pan_card = models.FileField(upload_to="kyc/identity/", null=True, blank=True, validators=[validate_identity_file])
+    co_applicant_photo = models.FileField(upload_to="kyc/identity/", null=True, blank=True, validators=[validate_image_file])
+    # The sales person the buyer dealt with, as they typed it (matched to the sales team when the phone matches).
+    sales_person_name = models.CharField(max_length=200, blank=True)
+    sales_person_phone = models.CharField(max_length=20, blank=True)
+    terms_accepted_at = models.DateTimeField(null=True, blank=True)
+
+    # Step 2 — plot confirmation + first payment receipt (the receipt and amount may come with Step 1)
     plot_confirmed = models.BooleanField(default=False)
     plot_mismatch_note = models.TextField(blank=True)
     receipt_file = models.FileField(upload_to="kyc/receipts/", null=True, blank=True, validators=[validate_receipt_file])

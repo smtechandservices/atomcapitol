@@ -210,24 +210,36 @@ function ReviewScreen({ id }: { id: string }) {
 
       {/* Step 2 — receipt */}
       <Card>
-        <CardHeader title="Step 2 · Plot confirmation, first receipt & ID" subtitle={s.step2_submitted_at ? `Submitted ${formatDateTime(s.step2_submitted_at)}` : undefined} />
+        <CardHeader title="Step 2 · Plot confirmation, first receipt & documents" subtitle={s.step2_submitted_at ? `Submitted ${formatDateTime(s.step2_submitted_at)}` : undefined} />
         <div className="grid grid-cols-1 lg:grid-cols-5">
           <div className="space-y-5 border-b border-ink-100 p-5 lg:col-span-3 lg:border-b-0 lg:border-r">
             <FilePreview title="Payment receipt" url={absoluteMediaUrl(s.receipt_file)} emptyText="No receipt uploaded yet" />
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-              {(
-                [
-                  ['Aadhaar (front)', s.aadhaar_front],
-                  ['Aadhaar (back)', s.aadhaar_back],
-                  ['PAN card', s.pan_card],
-                ] as const
-              ).map(([label, file]) => (
-                <div key={label} className="space-y-1.5">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-ink-400">{label}</p>
-                  <FilePreview title={label} url={absoluteMediaUrl(file)} emptyText="Not uploaded" height={260} />
+            <DocumentGrid
+              files={[
+                ['Photo', s.photo],
+                ['Aadhaar (front)', s.aadhaar_front],
+                ['Aadhaar (back)', s.aadhaar_back],
+                ['PAN card', s.pan_card],
+                ['Cancelled cheque', s.cancelled_cheque],
+              ]}
+            />
+            {s.co_applicant_name && (
+              <div className="space-y-3 rounded-lg border border-ink-100 p-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-ink-400">Co-applicant</p>
+                  <p className="mt-0.5 text-sm font-medium text-ink-800">{s.co_applicant_name}</p>
+                  <p className="text-xs text-ink-500">{[s.co_applicant_phone, s.co_applicant_email].filter(Boolean).join(' · ') || 'No phone or email given'}</p>
                 </div>
-              ))}
-            </div>
+                <DocumentGrid
+                  files={[
+                    ['Photo', s.co_applicant_photo],
+                    ['Aadhaar (front)', s.co_applicant_aadhaar_front],
+                    ['Aadhaar (back)', s.co_applicant_aadhaar_back],
+                    ['PAN card', s.co_applicant_pan_card],
+                  ]}
+                />
+              </div>
+            )}
           </div>
           <div className="space-y-5 p-5 lg:col-span-2">
             <dl className="grid grid-cols-2 gap-4 text-sm">
@@ -236,7 +248,18 @@ function ReviewScreen({ id }: { id: string }) {
                 value={formatCurrency(s.plot_terms?.total_value ?? s.plot_terms?.price)}
               />
               <Info label="Paid outside app (claimed)" value={formatCurrency(s.receipt_amount)} />
-              <Info label="Payment date" value={formatDate(s.receipt_payment_date)} />
+              <Info label="Payment date" value={s.receipt_payment_date ? formatDate(s.receipt_payment_date) : 'Not given'} />
+              {s.claimed_project && (
+                <Info
+                  label="Plot they named"
+                  value={[s.claimed_project, s.claimed_phase, s.claimed_plot_number].filter(Boolean).join(' · ')}
+                />
+              )}
+              <Info
+                label="Sales person"
+                value={s.sales_person_name ? `${s.sales_person_name}${s.sales_person_phone ? ` · ${s.sales_person_phone}` : ''}` : '—'}
+              />
+              <Info label="T&C accepted" value={s.terms_accepted_at ? formatDateTime(s.terms_accepted_at) : '—'} />
               <Info
                 label="Plot confirmed"
                 value={
@@ -331,13 +354,13 @@ function VideoStep({ submission: s, busy, onDecide }: { submission: KycQueueDeta
 
   return (
     <Card>
-      <CardHeader title="Step 3 · Video KYC" subtitle={s.step3_submitted_at ? `Submitted ${formatDateTime(s.step3_submitted_at)}` : undefined} />
+      <CardHeader title="Step 3 · Video KYC (optional)" subtitle={s.step3_submitted_at ? `Submitted ${formatDateTime(s.step3_submitted_at)}` : undefined} />
       <div className="grid grid-cols-1 lg:grid-cols-5">
         <div className="border-b border-ink-100 p-5 lg:col-span-3 lg:border-b-0 lg:border-r">
           {s.video_file ? (
             <video controls preload="metadata" className="aspect-video w-full rounded-lg bg-ink-900" src={absoluteMediaUrl(s.video_file) ?? undefined} />
           ) : (
-            <FilePlaceholder icon={<FileText className="size-6" />} text="No video uploaded yet" />
+            <FilePlaceholder icon={<FileText className="size-6" />} text="No video — video KYC is optional, so Step 2 alone can approve the customer" />
           )}
         </div>
         <div className="space-y-5 p-5 lg:col-span-2">
@@ -540,6 +563,19 @@ function StateNote({ tone, title, body }: { tone: 'neutral' | 'success' | 'dange
     <div className={clsx('rounded-lg px-4 py-3 text-sm', cls)}>
       <p className="font-semibold">{title}</p>
       {body && <p className="mt-0.5 opacity-80">{body}</p>}
+    </div>
+  )
+}
+
+function DocumentGrid({ files }: { files: [label: string, url: string | null][] }) {
+  return (
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      {files.map(([label, file]) => (
+        <div key={label} className="space-y-1.5">
+          <p className="text-xs font-semibold uppercase tracking-wide text-ink-400">{label}</p>
+          <FilePreview title={label} url={absoluteMediaUrl(file)} emptyText="Not uploaded" height={260} />
+        </div>
+      ))}
     </div>
   )
 }

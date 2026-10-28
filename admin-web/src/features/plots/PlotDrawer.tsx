@@ -25,6 +25,7 @@ import {
 } from './api'
 import { CustomerPicker, type PickedBuyer } from './CustomerPicker'
 import { DeletePlotModal } from './DeletePlotModal'
+import { useAllProjects } from '@/features/projects/api'
 
 type AssignDetails = Omit<AssignPayload, 'email'>
 
@@ -143,9 +144,10 @@ export function PlotDrawer({ plot, onClose }: { plot: Plot; onClose: () => void 
         <section className="grid grid-cols-2 gap-3 text-sm">
           <Info label="Size" value={plot.size} />
           <Info label="Block / Sector" value={plot.block_sector || '—'} />
+          <Info label="Phase" value={plot.phase || '—'} />
           <Info label="Price / sq. yd" value={formatCurrency(plot.rate_per_sq_yd)} />
           <Info label="PLC" value={Number(plot.plc_percent) ? `${Number(plot.plc_percent)}%${plot.plc_type ? ` (${plot.plc_type})` : ''}` : '—'} />
-          <Info label="List price" value={formatCurrency(plot.price)} />
+          <Info label="List price" value={<>{formatCurrency(plot.price)}{plot.price_is_manual && <span className="ml-1 text-xs text-ink-400">(set by hand)</span>}</>} />
           <Info label="Offered price" value={formatCurrency(plot.total_value)} />
           <Info label="Paid outside app" value={formatCurrency(plot.amount_paid_outside_app)} />
           <Info label="Remaining balance" value={formatCurrency(plot.remaining_balance)} />
@@ -318,6 +320,12 @@ function EditPlotModal({ plot, onClose }: { plot: Plot; onClose: () => void }) {
   const [plcPercent, setPlcPercent] = useState(Number(plot.plc_percent) ? String(Number(plot.plc_percent)) : '')
   const [plcType, setPlcType] = useState(plot.plc_type)
   const [status, setStatus] = useState<Plot['status']>(plot.status)
+  const [phase, setPhase] = useState(plot.phase)
+  const [manualPrice, setManualPrice] = useState(plot.price_is_manual)
+  const [listPrice, setListPrice] = useState(plot.price)
+  const [sellingPrice, setSellingPrice] = useState(plot.total_value ?? '')
+  const { data: projects } = useAllProjects()
+  const phases = projects?.find((p) => p.id === plot.project)?.phases ?? []
   const hasBuyers = plot.buyers.length > 0
   // Pricing fields go together: the backend recomputes the total price from size x rate x (1 + PLC%)
   const pricingChanged =
@@ -326,7 +334,13 @@ function EditPlotModal({ plot, onClose }: { plot: Plot; onClose: () => void }) {
     Number(plcPercent || 0) !== Number(plot.plc_percent) ||
     plcType.trim() !== plot.plc_type
   const total = Number(size) > 0 && rate !== '' && Number(rate) >= 0 ? Number(size) * Number(rate) * (1 + (Number(plcPercent) || 0) / 100) : null
-  const valid = plotNumber.trim() && (!pricingChanged || total !== null)
+  const listPriceChanged = manualPrice && Number(listPrice) !== Number(plot.price)
+  const sellingPriceChanged = sellingPrice !== '' && Number(sellingPrice) !== Number(plot.total_value ?? 0)
+  const valid =
+    plotNumber.trim() &&
+    (!pricingChanged || total !== null) &&
+    (!manualPrice || Number(listPrice) > 0) &&
+    (sellingPrice === '' || Number(sellingPrice) > 0)
 
   const submit = async () => {
     try {
@@ -335,6 +349,7 @@ function EditPlotModal({ plot, onClose }: { plot: Plot; onClose: () => void }) {
         values: {
           plot_number: plotNumber.trim(),
           block_sector: block.trim(),
+          phase: phase.trim(),
           status,
           ...(pricingChanged && {
             size: size.trim(),
@@ -342,6 +357,9 @@ function EditPlotModal({ plot, onClose }: { plot: Plot; onClose: () => void }) {
             plc_percent: plcPercent || '0',
             plc_type: plcType.trim(),
           }),
+          // Sent last so a hand-set price wins over the derived one; leaving "by hand" off goes back to deriving it.
+          ...(manualPrice ? (listPriceChanged || !plot.price_is_manual) && { price: listPrice } : plot.price_is_manual && !pricingChanged && { rate_per_sq_yd: rate }),
+          ...(sellingPriceChanged && { total_value: sellingPrice }),
         },
       })
       toast.success(`Plot ${plotNumber.trim()} updated`)
@@ -378,6 +396,21 @@ function EditPlotModal({ plot, onClose }: { plot: Plot; onClose: () => void }) {
           <FieldWrap label="Block / Sector">
             <Input value={block} onChange={(e) => setBlock(e.target.value)} />
           </FieldWrap>
+          <FieldWrap label="Phase" hint={phases.length ? undefined : 'Add phases to the project to pick from a list'}>
+            {phases.length ? (
+              <Select value={phase} onChange={(e) => setPhase(e.target.value)}>
+                <option value="">No phase</option>
+                {[...new Set([...phases, ...(phase && !phases.includes(phase) ? [phase] : [])])].map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </Select>
+            ) : (
+              <Input value={phase} onChange={(e) => setPhase(e.target.value)} placeholder="e.g. Phase 1" />
+            )}
+          </FieldWrap>
+          <div />
           <FieldWrap label="Size (sq. yd)" required>
             <Input type="number" min={0} value={size} onChange={(e) => setSize(e.target.value)} placeholder="e.g. 200" />
           </FieldWrap>
@@ -394,10 +427,34 @@ function EditPlotModal({ plot, onClose }: { plot: Plot; onClose: () => void }) {
             <Input value={plcType} onChange={(e) => setPlcType(e.target.value)} placeholder="e.g. Corner, Park facing" />
           </FieldWrap>
         </div>
-        <div className="flex items-center justify-between rounded-lg bg-ink-50 px-3 py-2 text-sm">
-          <span className="text-ink-500">Total price</span>
-          <span className="font-semibold tabular-nums text-ink-800">{formatCurrency(pricingChanged ? total : plot.price)}</span>
+        <div className="space-y-2 rounded-lg bg-ink-50 px-3 py-2 text-sm">
+          <div className="flex items-center justify-between gap-3">
+            <label className="flex cursor-pointer items-center gap-2 text-ink-500">
+              <input type="checkbox" checked={manualPrice} onChange={(e) => setManualPrice(e.target.checked)} className="accent-gold-500" />
+              Set list price by hand
+            </label>
+            {!manualPrice && <span className="font-semibold tabular-nums text-ink-800">{formatCurrency(pricingChanged ? total : plot.price)}</span>}
+          </div>
+          {manualPrice && (
+            <div className="relative">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-ink-400">₹</span>
+              <Input type="number" min={0} className="pl-7" value={listPrice} onChange={(e) => setListPrice(e.target.value)} />
+            </div>
+          )}
         </div>
+        <FieldWrap
+          label="Selling price (offered to the buyer)"
+          hint={
+            plot.total_value
+              ? 'Changing it re-splits the unpaid instalments so the schedule still adds up.'
+              : 'Usually set when the buyer’s KYC is approved.'
+          }
+        >
+          <div className="relative">
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-ink-400">₹</span>
+            <Input type="number" min={0} className="pl-7" value={sellingPrice} onChange={(e) => setSellingPrice(e.target.value)} placeholder="—" />
+          </div>
+        </FieldWrap>
         <FieldWrap label="Status">
           <div className="grid grid-cols-3 gap-1 rounded-lg border border-ink-200 bg-ink-50/50 p-1">
             {STATUS_OPTIONS.map((o) => {
@@ -422,8 +479,8 @@ function EditPlotModal({ plot, onClose }: { plot: Plot; onClose: () => void }) {
           </div>
         </FieldWrap>
         <p className="text-xs text-ink-400">
-          Buyers, the payment schedule and the project aren&apos;t changed here — to put an empty plot in another project, delete it and add it
-          there. The list price doesn&apos;t change an existing buyer&apos;s total value.
+          Buyers and the project aren&apos;t changed here — to put an empty plot in another project, delete it and add it there. The list
+          price doesn&apos;t change an existing buyer&apos;s selling price.
         </p>
       </div>
     </Modal>

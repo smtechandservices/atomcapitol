@@ -24,6 +24,9 @@ class SiteSettingsSerializer(serializers.ModelSerializer):
         model = SiteSettings
         fields = [
             "company_name",
+            "company_about",
+            "company_address",
+            "company_website",
             "support_phone",
             "support_email",
             "bank_account_name",
@@ -39,12 +42,18 @@ class SiteSettingsSerializer(serializers.ModelSerializer):
 
 
 class PublicSiteSettingsSerializer(serializers.ModelSerializer):
-    """Trimmed view exposed to CustomerApp: payment instructions + support contact only."""
+    """Trimmed view exposed to CustomerApp: company details, payment instructions, support contact and the T&C
+    buyers accept in KYC Step 1 (the same terms printed on receipts)."""
+
+    terms_and_conditions = serializers.CharField(source="receipt_terms", read_only=True)
 
     class Meta:
         model = SiteSettings
         fields = [
             "company_name",
+            "company_about",
+            "company_address",
+            "company_website",
             "support_phone",
             "support_email",
             "bank_account_name",
@@ -52,6 +61,7 @@ class PublicSiteSettingsSerializer(serializers.ModelSerializer):
             "bank_ifsc",
             "bank_name",
             "upi_id",
+            "terms_and_conditions",
         ]
 
 

@@ -2,7 +2,8 @@ from decimal import Decimal
 
 from rest_framework import serializers
 
-from core.validators import validate_identity_file
+from core.validators import validate_identity_file, validate_image_file, validate_receipt_file
+from projects.models import Project
 from projects.serializers import CustomerPlotDetailSerializer
 
 from .models import KYCDecisionLog, KYCSubmission
@@ -17,45 +18,100 @@ class KYCPlotCheckSerializer(serializers.Serializer):
     plot = CustomerPlotDetailSerializer()
 
 
-def _missing_identity_files(attrs, submission):
-    """Aadhaar front + PAN are required unless already on record (a resubmission, or uploaded in Step 1)."""
+def _missing_files(attrs, submission, fields):
+    """`fields` are required unless already on record (a resubmission, or sent with an earlier step)."""
     return {
         field: "This file is required."
-        for field in ("aadhaar_front", "pan_card")
+        for field in fields
         if not attrs.get(field) and not (submission and getattr(submission, field))
     }
 
 
+def _missing_identity_files(attrs, submission):
+    """Aadhaar front + PAN are required unless already on record (a resubmission, or uploaded in Step 1)."""
+    return _missing_files(attrs, submission, ("aadhaar_front", "pan_card"))
+
+
+def _identity_file(**kwargs):
+    return serializers.FileField(required=False, validators=[validate_identity_file], **kwargs)
+
+
+def _photo_file():
+    return serializers.FileField(required=False, validators=[validate_image_file])
+
+
 class KYCStep1Serializer(serializers.Serializer):
-    """Step 1 for customers without a plot: who they are, the plot they bought (as typed), and their ID."""
+    """Step 1, the first KYC screen, for every buyer: the plot and booking payment, who they are with their
+    documents, an optional co-applicant, the sales person they dealt with, and the T&C. Buyers who already have a
+    plot skip the project / phase / plot number. Files left out keep the ones on record."""
+
+    project = serializers.PrimaryKeyRelatedField(queryset=Project.objects.filter(is_published=True), required=False)
+    phase = serializers.CharField(max_length=100, required=False, allow_blank=True, default="")
+    claimed_plot_number = serializers.CharField(max_length=50, required=False, allow_blank=True, default="")
+    receipt_amount = serializers.DecimalField(max_digits=14, decimal_places=2, min_value=Decimal("0.01"))
+    receipt_file = serializers.FileField(required=False, validators=[validate_receipt_file])
 
     name = serializers.CharField(max_length=200)
     phone = serializers.CharField(max_length=20)
-    claimed_project = serializers.CharField(max_length=200)
-    claimed_plot_number = serializers.CharField(max_length=50)
-    aadhaar_front = serializers.FileField(required=False, validators=[validate_identity_file])
-    aadhaar_back = serializers.FileField(required=False, validators=[validate_identity_file])
-    pan_card = serializers.FileField(required=False, validators=[validate_identity_file])
+    aadhaar_front = _identity_file()
+    aadhaar_back = _identity_file()
+    pan_card = _identity_file()
+    photo = _photo_file()
+    cancelled_cheque = _identity_file()
+
+    co_applicant_name = serializers.CharField(max_length=200, required=False, allow_blank=True, default="")
+    co_applicant_phone = serializers.CharField(max_length=20, required=False, allow_blank=True, default="")
+    co_applicant_email = serializers.EmailField(required=False, allow_blank=True, default="")
+    co_applicant_aadhaar_front = _identity_file()
+    co_applicant_aadhaar_back = _identity_file()
+    co_applicant_pan_card = _identity_file()
+    co_applicant_photo = _photo_file()
+
+    sales_person_name = serializers.CharField(max_length=200)
+    sales_person_phone = serializers.CharField(max_length=20)
+    accept_terms = serializers.BooleanField()
+
+    def validate_accept_terms(self, value):
+        if not value:
+            raise serializers.ValidationError("Please accept the terms and conditions.")
+        return value
 
     def validate(self, attrs):
-        missing = _missing_identity_files(attrs, self.context.get("submission"))
-        if missing:
-            raise serializers.ValidationError(missing)
+        submission = self.context.get("submission")
+        errors = {}
+        if not self.context.get("has_plot"):
+            project = attrs.get("project")
+            if project is None:
+                errors["project"] = "Choose your project."
+            elif project.phases and attrs["phase"] not in project.phases:
+                errors["phase"] = "Choose your phase."
+            if not attrs["claimed_plot_number"].strip():
+                errors["claimed_plot_number"] = "Enter your plot number."
+        errors.update(_missing_files(attrs, submission, ("receipt_file", "aadhaar_front", "pan_card", "photo", "cancelled_cheque")))
+        if attrs["co_applicant_name"].strip():
+            errors.update(_missing_files(attrs, submission, ("co_applicant_aadhaar_front", "co_applicant_pan_card", "co_applicant_photo")))
+        if errors:
+            raise serializers.ValidationError(errors)
         return attrs
 
 
 class KYCStep2Serializer(serializers.Serializer):
+    """Plot confirmation. The receipt, amount and ID files usually came with Step 1; sent here they replace those."""
+
     plot_confirmed = serializers.BooleanField()
     plot_mismatch_note = serializers.CharField(required=False, allow_blank=True, default="")
-    receipt_file = serializers.FileField()
-    receipt_amount = serializers.DecimalField(max_digits=14, decimal_places=2)
-    receipt_payment_date = serializers.DateField()
-    aadhaar_front = serializers.FileField(required=False, validators=[validate_identity_file])
-    aadhaar_back = serializers.FileField(required=False, validators=[validate_identity_file])
-    pan_card = serializers.FileField(required=False, validators=[validate_identity_file])
+    receipt_file = serializers.FileField(required=False, validators=[validate_receipt_file])
+    receipt_amount = serializers.DecimalField(max_digits=14, decimal_places=2, required=False)
+    receipt_payment_date = serializers.DateField(required=False)
+    aadhaar_front = _identity_file()
+    aadhaar_back = _identity_file()
+    pan_card = _identity_file()
 
     def validate(self, attrs):
-        missing = _missing_identity_files(attrs, self.context.get("submission"))
+        submission = self.context.get("submission")
+        missing = _missing_files(attrs, submission, ("receipt_file", "aadhaar_front", "pan_card"))
+        if "receipt_amount" not in attrs and not (submission and submission.receipt_amount):
+            missing["receipt_amount"] = "This field is required."
         if missing:
             raise serializers.ValidationError(missing)
         return attrs
@@ -65,10 +121,26 @@ class KYCStep3Serializer(serializers.Serializer):
     video_file = serializers.FileField()
 
 
+# Files the buyer uploaded for KYC. Once KYC is approved they're no longer shown back to the buyer.
+KYC_DOCUMENT_FIELDS = (
+    "receipt_file",
+    "aadhaar_front",
+    "aadhaar_back",
+    "pan_card",
+    "photo",
+    "cancelled_cheque",
+    "co_applicant_aadhaar_front",
+    "co_applicant_aadhaar_back",
+    "co_applicant_pan_card",
+    "co_applicant_photo",
+)
+
+
 class KYCStatusSerializer(serializers.ModelSerializer):
     kyc_status = serializers.CharField(source="customer.kyc_status", read_only=True)
     plot_assigned = serializers.SerializerMethodField()
     next_route = serializers.SerializerMethodField()
+    selected_project = serializers.PrimaryKeyRelatedField(read_only=True)
 
     class Meta:
         model = KYCSubmission
@@ -77,15 +149,21 @@ class KYCStatusSerializer(serializers.ModelSerializer):
             "plot_assigned",
             "next_route",
             "claimed_project",
+            "selected_project",
+            "claimed_phase",
             "claimed_plot_number",
             "step1_submitted_at",
+            "co_applicant_name",
+            "co_applicant_phone",
+            "co_applicant_email",
+            "sales_person_name",
+            "sales_person_phone",
+            "terms_accepted_at",
             "plot_confirmed",
             "plot_mismatch_note",
             "receipt_amount",
             "receipt_payment_date",
-            "aadhaar_front",
-            "aadhaar_back",
-            "pan_card",
+            *KYC_DOCUMENT_FIELDS,
             "step2_status",
             "step2_rejection_reason",
             "step2_submitted_at",
@@ -94,6 +172,12 @@ class KYCStatusSerializer(serializers.ModelSerializer):
             "step3_rejection_reason",
             "step3_submitted_at",
         ]
+
+    def to_representation(self, obj):
+        data = super().to_representation(obj)
+        if obj.customer.kyc_status == "APPROVED":
+            data.update(dict.fromkeys(KYC_DOCUMENT_FIELDS))
+        return data
 
     def get_plot_assigned(self, obj):
         return obj.customer.assigned_plot_id is not None
@@ -184,6 +268,22 @@ class KYCQueueDetailSerializer(serializers.ModelSerializer):
             "aadhaar_front",
             "aadhaar_back",
             "pan_card",
+            "photo",
+            "cancelled_cheque",
+            "claimed_project",
+            "claimed_phase",
+            "claimed_plot_number",
+            "step1_submitted_at",
+            "co_applicant_name",
+            "co_applicant_phone",
+            "co_applicant_email",
+            "co_applicant_aadhaar_front",
+            "co_applicant_aadhaar_back",
+            "co_applicant_pan_card",
+            "co_applicant_photo",
+            "sales_person_name",
+            "sales_person_phone",
+            "terms_accepted_at",
             "step2_status",
             "step2_rejection_reason",
             "step2_submitted_at",
@@ -257,6 +357,8 @@ class KYCDecisionSerializer(serializers.Serializer):
     frequency = serializers.ChoiceField(choices=["MONTHLY", "WEEKLY"], default="MONTHLY")
     # The reviewed due dates of instalments 2..instalment_count, in order; computed from `frequency` when left out.
     due_dates = serializers.ListField(child=serializers.DateField(), required=False)
+    # The reviewed amounts of instalments 2..instalment_count, in order; an even split when left out.
+    amounts = serializers.ListField(child=serializers.DecimalField(max_digits=14, decimal_places=2, min_value=Decimal("0.01")), required=False)
     step3_decision = serializers.ChoiceField(choices=["APPROVED", "REJECTED"], required=False)
     step3_reason = serializers.CharField(required=False, allow_blank=True, default="")
 
@@ -278,6 +380,9 @@ class KYCDecisionSerializer(serializers.Serializer):
                 raise serializers.ValidationError({"due_dates": "Give one due date for each instalment after the first."})
             if any(a >= b for a, b in zip(dates, dates[1:])):
                 raise serializers.ValidationError({"due_dates": "Each due date must be after the one before it."})
+        amounts = attrs.get("amounts")
+        if amounts is not None and ("instalment_count" not in attrs or len(amounts) != attrs["instalment_count"] - 1):
+            raise serializers.ValidationError({"amounts": "Give one amount for each instalment after the first."})
         return attrs
 
     def get_payment_terms(self):
@@ -287,11 +392,13 @@ class KYCDecisionSerializer(serializers.Serializer):
         return {"total_value": data["total_value"], "instalment_count": data["instalment_count"]}
 
     def get_schedule_options(self):
-        return {"frequency": self.validated_data["frequency"], "due_dates": self.validated_data.get("due_dates")}
+        data = self.validated_data
+        return {"frequency": data["frequency"], "due_dates": data.get("due_dates"), "amounts": data.get("amounts")}
 
 
 class SchedulePreviewSerializer(serializers.Serializer):
     total_value = serializers.DecimalField(max_digits=14, decimal_places=2, min_value=Decimal("0.01"))
     instalment_count = serializers.IntegerField(min_value=2)
     frequency = serializers.ChoiceField(choices=["MONTHLY", "WEEKLY"], default="MONTHLY")
+    amounts = serializers.ListField(child=serializers.DecimalField(max_digits=14, decimal_places=2, min_value=Decimal("0.01")), required=False)
     receipt_entries = ReceiptEntrySerializer(many=True, required=False)

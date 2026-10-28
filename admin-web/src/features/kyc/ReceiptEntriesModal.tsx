@@ -22,7 +22,7 @@ const blankEntry = (amount = '', date = ''): ReceiptEntry => ({
 
 /** Collects the payment(s) behind the customer's first receipt; each becomes a table on the PDF.
  * With `terms` (primary buyer, no schedule yet) it also takes the plot's payment terms and shows the
- * milestones they produce for review (monthly or weekly, due dates editable) before approving. */
+ * milestones they produce for review (monthly or weekly, due dates and amounts editable) before approving. */
 export function ReceiptEntriesModal({
   open,
   onClose,
@@ -98,8 +98,13 @@ export function ReceiptEntriesModal({
       return prev && m.due_date <= prev.due_date ? 'Must be after the previous instalment' : null
     }
     const datesValid = upcoming.every((m) => !dateError(m))
-    const setDueDate = (sequence: number, due_date: string) =>
-      setPreview(preview.map((m) => (m.sequence === sequence ? { ...m, due_date } : m)))
+    const setRow = (sequence: number, patch: Partial<PreviewMilestone>) =>
+      setPreview(preview.map((m) => (m.sequence === sequence ? { ...m, ...patch } : m)))
+    // Instalments 2..n must still add up to what's left after the booking payment (instalment 1).
+    const booked = preview.filter((m) => m.status === 'PAID').reduce((sum, m) => sum + Number(m.amount), 0)
+    const balance = Number(total) - booked
+    const planned = upcoming.reduce((sum, m) => sum + (Number(m.amount) || 0), 0)
+    const amountsValid = upcoming.every((m) => Number(m.amount) > 0) && Math.abs(planned - balance) < 1
 
     return (
       <Modal
@@ -115,8 +120,15 @@ export function ReceiptEntriesModal({
             <Button
               variant="secondary"
               loading={loading}
-              disabled={!datesValid || previewing}
-              onClick={() => onSubmit(entries, { ...paymentTerms, frequency, due_dates: upcoming.map((m) => m.due_date) })}
+              disabled={!datesValid || !amountsValid || previewing}
+              onClick={() =>
+                onSubmit(entries, {
+                  ...paymentTerms,
+                  frequency,
+                  due_dates: upcoming.map((m) => m.due_date),
+                  amounts: upcoming.map((m) => m.amount),
+                })
+              }
             >
               Approve &amp; generate
             </Button>
@@ -151,7 +163,7 @@ export function ReceiptEntriesModal({
                 </button>
               ))}
             </div>
-            <p className="text-xs text-ink-400">Switching resets the dates. You can change any due date below.</p>
+            <p className="text-xs text-ink-400">Switching resets the dates and amounts. You can change any due date or amount below.</p>
           </div>
           <div className="overflow-hidden rounded-lg border border-ink-100">
             <table className="w-full text-sm">
@@ -175,7 +187,7 @@ export function ReceiptEntriesModal({
                             <Input
                               type="date"
                               value={m.due_date}
-                              onChange={(e) => setDueDate(m.sequence, e.target.value)}
+                              onChange={(e) => setRow(m.sequence, { due_date: e.target.value })}
                               className={clsx('h-8 py-1', error && 'border-red-300')}
                               aria-invalid={!!error}
                             />
@@ -185,7 +197,19 @@ export function ReceiptEntriesModal({
                           formatDate(m.due_date)
                         )}
                       </td>
-                      <td className="px-3 py-2 text-right tabular-nums text-ink-800">{formatCurrency(m.amount)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-ink-800">
+                        {m.status === 'UPCOMING' ? (
+                          <Input
+                            type="number"
+                            min={0}
+                            value={m.amount}
+                            onChange={(e) => setRow(m.sequence, { amount: e.target.value })}
+                            className={clsx('ml-auto h-8 w-32 py-1 text-right', !(Number(m.amount) > 0) && 'border-red-300')}
+                          />
+                        ) : (
+                          formatCurrency(m.amount)
+                        )}
+                      </td>
                       <td className="px-3 py-2">
                         <Badge>{m.status}</Badge>
                       </td>
@@ -195,6 +219,11 @@ export function ReceiptEntriesModal({
               </tbody>
             </table>
           </div>
+          {!amountsValid && (
+            <p className="text-xs text-red-600">
+              The instalments add up to {formatCurrency(planned)} but {formatCurrency(balance)} is left to pay.
+            </p>
+          )}
           <p className="text-xs text-ink-400">Approving saves these milestones and issues the payment receipt for instalment 1.</p>
         </div>
       </Modal>

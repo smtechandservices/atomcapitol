@@ -11,7 +11,7 @@ export type MilestoneStatus = 'UPCOMING' | 'DUE' | 'OVERDUE' | 'UNDER_REVIEW' | 
 export type PaymentProofStatus = 'PENDING' | 'APPROVED' | 'REJECTED'
 export type MilestoneChangeType = 'PAY_MORE' | 'PAY_LESS' | 'CHANGE_DATE' | 'CHANGE_INSTALMENTS' | 'RESPLIT'
 export type MilestoneChangeRequestStatus = 'PENDING' | 'APPROVED' | 'DECLINED' | 'COUNTERED'
-export type DocumentType = 'PAYMENT_RECEIPT' | 'REGISTRY' | 'LEGAL' | 'OTHER'
+export type DocumentType = 'PAYMENT_RECEIPT' | 'REGISTRY' | 'LEGAL' | 'ALLOTMENT_LETTER' | 'PROJECT' | 'OTHER'
 export type DocumentStatus = 'ISSUED' | 'IN_PROGRESS'
 export type TicketCategory = 'PAYMENT' | 'DOCUMENTS' | 'CONSTRUCTION' | 'GENERAL'
 export type TicketStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED'
@@ -75,6 +75,12 @@ export interface Project {
   longitude: string | null
   description: string
   amenities: string[]
+  /** Phase names buyers pick from in KYC Step 1. */
+  phases: string[]
+  /** Shown to buyers for their knowledge, e.g. "₹25,000 + GST". */
+  legal_fee: string
+  registry_charges: string
+  development_charges: string
   brochure: string | null
   development_status: ProjectDevelopmentStatus
   is_published: boolean
@@ -101,10 +107,13 @@ export interface Plot {
   plot_number: string
   size: string
   block_sector: string
+  phase: string
   rate_per_sq_yd: string | null
   plc_percent: string
   plc_type: string
   price: string
+  /** The list price was typed by hand instead of derived from size x rate x PLC. */
+  price_is_manual: boolean
   status: PlotStatus
   booking_date: string | null
   total_value: string | null
@@ -145,6 +154,7 @@ export interface SalesPerson {
 /** The plot a new (self-registered) customer says they bought, as typed in KYC Step 1. Set until a plot is assigned. */
 export interface ClaimedPlot {
   project: string
+  phase: string
   plot_number: string
 }
 
@@ -280,6 +290,23 @@ export interface KycQueueDetail {
   aadhaar_front: string | null
   aadhaar_back: string | null
   pan_card: string | null
+  /** KYC Step 1 (the first KYC screen). Blank / null on submissions made before it asked for them. */
+  photo: string | null
+  cancelled_cheque: string | null
+  claimed_project: string
+  claimed_phase: string
+  claimed_plot_number: string
+  step1_submitted_at: string | null
+  co_applicant_name: string
+  co_applicant_phone: string
+  co_applicant_email: string
+  co_applicant_aadhaar_front: string | null
+  co_applicant_aadhaar_back: string | null
+  co_applicant_pan_card: string | null
+  co_applicant_photo: string | null
+  sales_person_name: string
+  sales_person_phone: string
+  terms_accepted_at: string | null
   step2_status: KYCStepStatus | null
   step2_rejection_reason: string
   step2_submitted_at: string | null
@@ -544,6 +571,10 @@ export interface CampaignStats {
 // ---------------------------------------------------------------------------
 export interface CompanySettings {
   company_name: string
+  /** Shown on the customer app's home screen. */
+  company_about: string
+  company_address: string
+  company_website: string
   support_phone: string
   support_email: string
   bank_account_name: string

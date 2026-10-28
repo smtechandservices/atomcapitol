@@ -25,6 +25,11 @@ class Project(TimeStampedModel):
     development_status = models.CharField(
         max_length=30, choices=DevelopmentStatus.choices, default=DevelopmentStatus.PLANNING
     )
+    phases = models.JSONField(default=list, blank=True, help_text='Phase names buyers pick in KYC, e.g. ["Phase 1", "Phase 2"]')
+    # Shown to buyers for their knowledge; collected outside the plot price. Free text, e.g. "₹25,000 + GST".
+    legal_fee = models.CharField(max_length=200, blank=True)
+    registry_charges = models.CharField(max_length=200, blank=True)
+    development_charges = models.CharField(max_length=200, blank=True)
     is_published = models.BooleanField(default=False)
 
     class Meta:
@@ -63,14 +68,17 @@ class Plot(TimeStampedModel):
     plot_number = models.CharField(max_length=50)
     size = models.CharField(max_length=50, help_text="Area in sq. yd, e.g. 200")
     block_sector = models.CharField(max_length=50, blank=True)
+    phase = models.CharField(max_length=100, blank=True)
     rate_per_sq_yd = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     plc_percent = models.DecimalField(
         max_digits=5, decimal_places=2, default=0, help_text="Preferential Location Charge, % of base price"
     )
     plc_type = models.CharField(max_length=100, blank=True, help_text="e.g. Corner, Park facing")
     price = models.DecimalField(
-        max_digits=14, decimal_places=2, help_text="Total list price = size x rate x (1 + PLC%)"
+        max_digits=14, decimal_places=2, help_text="Total list price = size x rate x (1 + PLC%), unless set by hand"
     )
+    # Admin typed the list price instead of letting size x rate x PLC derive it.
+    price_is_manual = models.BooleanField(default=False)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.AVAILABLE)
     booking_date = models.DateField(null=True, blank=True)
 
@@ -100,9 +108,9 @@ class Plot(TimeStampedModel):
         return total.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     def save(self, *args, **kwargs):
-        # Plots priced per sq. yd derive their total; legacy plots keep a hand-entered price.
+        # Plots priced per sq. yd derive their total; legacy plots and hand-set prices keep theirs.
         area = self.parse_area(self.size)
-        if self.rate_per_sq_yd is not None and area is not None:
+        if not self.price_is_manual and self.rate_per_sq_yd is not None and area is not None:
             self.price = self.compute_price(area, self.rate_per_sq_yd, self.plc_percent)
         super().save(*args, **kwargs)
 

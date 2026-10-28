@@ -200,7 +200,9 @@ class CustomerListSerializer(serializers.ModelSerializer):
 
     def get_claimed_plot(self, obj):
         step1 = _step1(obj)
-        return {"project": step1.claimed_project, "plot_number": step1.claimed_plot_number} if step1 else None
+        if not step1:
+            return None
+        return {"project": step1.claimed_project, "phase": step1.claimed_phase, "plot_number": step1.claimed_plot_number}
 
 
 class CustomerAdminCreateSerializer(serializers.ModelSerializer):
@@ -262,6 +264,8 @@ class CustomerAdminDetailSerializer(serializers.ModelSerializer):
         files = {f: getattr(step1, f).url if getattr(step1, f) else None for f in ("aadhaar_front", "aadhaar_back", "pan_card")}
         return {
             "project": step1.claimed_project,
+            "project_id": step1.selected_project_id,
+            "phase": step1.claimed_phase,
             "plot_number": step1.claimed_plot_number,
             "submitted_at": step1.step1_submitted_at,
             **files,

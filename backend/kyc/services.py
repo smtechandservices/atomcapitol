@@ -30,24 +30,79 @@ def get_or_create_submission(customer):
 
 
 IDENTITY_FIELDS = ("aadhaar_front", "aadhaar_back", "pan_card")
+# Every file Step 1 takes. Each one left out keeps the one on record.
+STEP1_FILE_FIELDS = (
+    "receipt_file",
+    *IDENTITY_FIELDS,
+    "photo",
+    "cancelled_cheque",
+    "co_applicant_aadhaar_front",
+    "co_applicant_aadhaar_back",
+    "co_applicant_pan_card",
+    "co_applicant_photo",
+)
+CO_APPLICANT_TEXT_FIELDS = ("co_applicant_name", "co_applicant_phone", "co_applicant_email")
 
 
-def submit_step1(customer, *, name, phone, claimed_project, claimed_plot_number, aadhaar_front=None, aadhaar_back=None, pan_card=None):
-    """New customers without a plot: who they are and which plot they say they bought. Re-submittable until admin
-    assigns a plot; ID files left as None keep what's on record. The files then count for Step 2 too.
+def step1_open(customer, submission):
+    """Step 1 can be (re)sent until the plot confirmation (Step 2) is in review or approved: a buyer without a plot
+    edits it while they wait, and one whose Step 2 was sent back fixes their documents here."""
+    if customer.assigned_plot_id is None:
+        return True
+    return submission is None or submission.step2_status in (None, StepStatus.REJECTED)
+
+
+def _phone_digits(phone):
+    return "".join(ch for ch in phone if ch.isdigit())[-10:]
+
+
+def _link_sales_person(customer, phone):
+    """Links the sales person the buyer named when their phone matches someone on the sales team."""
+    from sales.models import SalesPerson
+
+    digits = _phone_digits(phone)
+    if customer.assigned_sales_person_id or len(digits) < 10:
+        return
+    match = next((p for p in SalesPerson.objects.filter(is_active=True) if _phone_digits(p.phone) == digits), None)
+    if match:
+        customer.assigned_sales_person = match
+        customer.save(update_fields=["assigned_sales_person", "updated_at"])
+
+
+@transaction.atomic
+def submit_step1(customer, *, name, phone, receipt_amount, sales_person_name, sales_person_phone, project=None, phase="",
+                 claimed_plot_number="", co_applicant_name="", co_applicant_phone="", co_applicant_email="", accept_terms=True, **files):
+    """The first KYC screen. A buyer without a plot also says which one they bought (project, phase, plot number);
+    admin matches it to a listed plot and assigns it, which unlocks Step 2. Re-submittable while step1_open();
+    files left as None keep what's on record, and all of them count for Step 2 too.
     """
     customer.name = name
     customer.phone = phone
     customer.save(update_fields=["name", "phone", "updated_at"])
 
     submission = get_or_create_submission(customer)
-    submission.claimed_project = claimed_project
-    submission.claimed_plot_number = claimed_plot_number
-    for field, file in zip(IDENTITY_FIELDS, (aadhaar_front, aadhaar_back, pan_card)):
-        if file is not None:
-            setattr(submission, field, file)
+    if customer.assigned_plot_id is None:
+        submission.selected_project = project
+        submission.claimed_project = project.name
+        submission.claimed_phase = phase
+        submission.claimed_plot_number = claimed_plot_number.strip()
+    submission.receipt_amount = receipt_amount
+    submission.sales_person_name = sales_person_name
+    submission.sales_person_phone = sales_person_phone
+    for field, value in zip(CO_APPLICANT_TEXT_FIELDS, (co_applicant_name, co_applicant_phone, co_applicant_email)):
+        setattr(submission, field, value.strip())
+    if not co_applicant_name.strip():
+        # No co-applicant (any more): drop their files too, so they aren't reviewed.
+        for field in STEP1_FILE_FIELDS:
+            if field.startswith("co_applicant_"):
+                setattr(submission, field, "")
+    for field in STEP1_FILE_FIELDS:
+        if files.get(field) is not None:
+            setattr(submission, field, files[field])
+    submission.terms_accepted_at = timezone.now()
     submission.step1_submitted_at = timezone.now()
     submission.save()
+    _link_sales_person(customer, sales_person_phone)
     return submission
 
 
@@ -57,6 +112,20 @@ def reset_submission(customer):
         claimed_project="",
         claimed_plot_number="",
         step1_submitted_at=None,
+        selected_project=None,
+        claimed_phase="",
+        photo="",
+        cancelled_cheque="",
+        co_applicant_name="",
+        co_applicant_phone="",
+        co_applicant_email="",
+        co_applicant_aadhaar_front="",
+        co_applicant_aadhaar_back="",
+        co_applicant_pan_card="",
+        co_applicant_photo="",
+        sales_person_name="",
+        sales_person_phone="",
+        terms_accepted_at=None,
         plot_confirmed=False,
         plot_mismatch_note="",
         receipt_file="",
@@ -83,14 +152,15 @@ def submit_step2(
     *,
     plot_confirmed,
     plot_mismatch_note,
-    receipt_file,
-    receipt_amount,
-    receipt_payment_date,
+    receipt_file=None,
+    receipt_amount=None,
+    receipt_payment_date=None,
     aadhaar_front=None,
     aadhaar_back=None,
     pan_card=None,
 ):
-    """ID files left as None keep whatever is already on record (resubmission after a rejection)."""
+    """The receipt, amount and ID files left as None keep whatever is on record (sent with Step 1, or a
+    resubmission after a rejection)."""
     submission = get_or_create_submission(customer)
     submission.plot_confirmed = plot_confirmed
     submission.plot_mismatch_note = plot_mismatch_note
@@ -99,8 +169,10 @@ def submit_step2(
     for field, file in zip(IDENTITY_FIELDS, (aadhaar_front, aadhaar_back, pan_card)):
         if file is not None:
             setattr(submission, field, file)
-    submission.receipt_amount = receipt_amount
-    submission.receipt_payment_date = receipt_payment_date
+    if receipt_amount is not None:
+        submission.receipt_amount = receipt_amount
+    if receipt_payment_date is not None:
+        submission.receipt_payment_date = receipt_payment_date
     submission.step2_status = StepStatus.PENDING
     submission.step2_rejection_reason = ""
     submission.step2_submitted_at = timezone.now()
@@ -122,10 +194,23 @@ def submit_step3(customer, *, video_file):
     return submission
 
 
+def skip_step3(customer):
+    """Video KYC is optional: withdraws a video that's waiting for review or was sent back."""
+    submission = get_or_create_submission(customer)
+    submission.video_file = ""
+    submission.step3_status = None
+    submission.step3_rejection_reason = ""
+    submission.step3_submitted_at = None
+    submission.save()
+    _recompute_customer_status(customer, submission)
+    return submission
+
+
 def _recompute_customer_status(customer, submission):
+    # Video KYC is optional: an approved Step 2 is enough unless a video is sent (then it's reviewed too).
     if submission.step2_status == StepStatus.REJECTED or submission.step3_status == StepStatus.REJECTED:
         new_status = Customer.KYCStatus.REJECTED
-    elif submission.step2_status == StepStatus.APPROVED and submission.step3_status == StepStatus.APPROVED:
+    elif submission.step2_status == StepStatus.APPROVED and submission.step3_status in (None, StepStatus.APPROVED):
         new_status = Customer.KYCStatus.APPROVED
     elif submission.step2_status or submission.step3_status:
         new_status = Customer.KYCStatus.SUBMITTED

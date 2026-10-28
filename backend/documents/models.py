@@ -5,12 +5,15 @@ from core.validators import validate_document_file
 
 
 class Document(TimeStampedModel):
-    """5.7 Documents (Payment Receipts + Registry & Legal) and 7.13 admin management."""
+    """5.7 Documents (Payment Receipts + Registry & Legal) and 7.13 admin management.
+    A document with a project and no customer is shared with every buyer in that project."""
 
     class DocType(models.TextChoices):
         PAYMENT_RECEIPT = "PAYMENT_RECEIPT", "Payment Receipt"
         REGISTRY = "REGISTRY", "Registry Document"
         LEGAL = "LEGAL", "Legal Document"
+        ALLOTMENT_LETTER = "ALLOTMENT_LETTER", "Allotment Letter"
+        PROJECT = "PROJECT", "Project Document"
         OTHER = "OTHER", "Other"
 
     class DocStatus(models.TextChoices):

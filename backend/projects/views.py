@@ -7,12 +7,13 @@ from rest_framework.response import Response
 
 from accounts.models import Customer
 from core.models import AuditLog
-from core.permissions import IsKYCApproved, role_required
+from core.permissions import IsCustomerUser, IsKYCApproved, role_required
 
 from . import services
 from .models import Plot, Project, ProjectImage
 from .serializers import (
     CustomerPlotDetailSerializer,
+    CustomerProjectSerializer,
     PlotAssignmentHistorySerializer,
     PlotAssignSerializer,
     PlotSerializer,
@@ -137,6 +138,10 @@ class PlotViewSet(viewsets.ModelViewSet):
     def perform_update(self, serializer):
         before = {f: str(getattr(serializer.instance, f)) for f in serializer.validated_data}
         instance = serializer.save()
+        if "total_value" in before and before["total_value"] != str(instance.total_value):
+            from payments.services import resplit_after_price_change
+
+            resplit_after_price_change(instance)
         AuditLog.record(
             self.request.user,
             "plot.update",
@@ -245,3 +250,12 @@ class CustomerPlotView(generics.RetrieveAPIView):
 
             raise NotFound("No plot assigned.")
         return plot
+
+
+class CustomerProjectListView(generics.ListAPIView):
+    """Every published project, for any signed-in customer (before KYC too: Step 1 picks from these)."""
+
+    serializer_class = CustomerProjectSerializer
+    permission_classes = [IsCustomerUser]
+    pagination_class = None
+    queryset = Project.objects.filter(is_published=True).prefetch_related("images")

@@ -343,9 +343,10 @@ export function CustomerDetailPage() {
                     <p className="text-xs text-gold-800">Customer says they bought</p>
                     <p className="mt-0.5 text-sm font-semibold text-ink-800">
                       Plot {claim.plot_number} · {claim.project}
+                      {claim.phase && <> · {claim.phase}</>}
                     </p>
                     <p className="mt-1 text-xs text-ink-500">
-                      Typed in the app on {formatDate(claim.submitted_at)}. Check it and their ID (shown when assigning) against your records, then assign the matching listed plot to
+                      Sent from the app on {formatDate(claim.submitted_at)}. Check it and their ID (shown when assigning) against your records, then assign the matching listed plot to
                       unlock KYC steps 2 and 3.
                     </p>
                   </div>
@@ -524,6 +525,7 @@ export function CustomerDetailPage() {
         {claim && (
           <p className="mb-4 rounded-lg bg-gold-50 px-3 py-2 text-xs text-gold-900 ring-1 ring-gold-200">
             Customer says: plot <span className="font-semibold">{claim.plot_number}</span> in <span className="font-semibold">{claim.project}</span>
+            {claim.phase && <> ({claim.phase})</>}
           </p>
         )}
         {claim && (

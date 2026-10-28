@@ -87,6 +87,8 @@ export interface PaymentTerms {
   instalment_count: number
   frequency?: ScheduleFrequency
   due_dates?: string[]
+  /** Amounts of instalments 2..n, in order; an even split when left out. Must add up to the balance. */
+  amounts?: string[]
 }
 
 export interface PreviewMilestone {

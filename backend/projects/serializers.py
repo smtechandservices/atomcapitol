@@ -16,6 +16,14 @@ class ProjectSerializer(serializers.ModelSerializer):
     images = ProjectImageSerializer(many=True, read_only=True)
     plot_count = serializers.IntegerField(source="plots.count", read_only=True)
 
+    def validate_phases(self, value):
+        if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+            raise serializers.ValidationError("Phases must be a list of names.")
+        names = [v.strip() for v in value if v.strip()]
+        if len({n.lower() for n in names}) != len(names):
+            raise serializers.ValidationError("Each phase name must be different.")
+        return names
+
     class Meta:
         model = Project
         fields = [
@@ -26,6 +34,10 @@ class ProjectSerializer(serializers.ModelSerializer):
             "longitude",
             "description",
             "amenities",
+            "phases",
+            "legal_fee",
+            "registry_charges",
+            "development_charges",
             "brochure",
             "development_status",
             "is_published",
@@ -68,10 +80,12 @@ class PlotSerializer(serializers.ModelSerializer):
             "plot_number",
             "size",
             "block_sector",
+            "phase",
             "rate_per_sq_yd",
             "plc_percent",
             "plc_type",
             "price",
+            "price_is_manual",
             "status",
             "booking_date",
             "total_value",
@@ -82,9 +96,11 @@ class PlotSerializer(serializers.ModelSerializer):
             "created_at",
         ]
         validators = []  # uniqueness checked in validate() with a readable message; the DB constraint still holds
-        # price is derived in Plot.save() from size x rate_per_sq_yd x (1 + plc_percent/100)
-        read_only_fields = ["price"]
+        # price is derived in Plot.save() from size x rate_per_sq_yd x (1 + plc_percent/100) unless sent by hand
+        read_only_fields = ["price_is_manual"]
         extra_kwargs = {
+            "price": {"required": False, "min_value": 0},
+            "total_value": {"min_value": 0},
             "rate_per_sq_yd": {"min_value": 0},
             "plc_percent": {"min_value": 0, "max_value": 100},
             "instalment_count": {"min_value": 2},
@@ -101,12 +117,19 @@ class PlotSerializer(serializers.ModelSerializer):
             if clash.exists():
                 raise serializers.ValidationError({"plot_number": f"Plot {number} already exists in {project.name}."})
         self._validate_pricing(attrs)
+        # A list price sent by hand sticks; changing size / rate / PLC without one goes back to the derived price.
+        if "price" in attrs:
+            attrs["price_is_manual"] = True
+        elif {"size", "rate_per_sq_yd", "plc_percent"} & attrs.keys():
+            attrs["price_is_manual"] = False
         return attrs
 
     def _validate_pricing(self, attrs):
         # Partial edits that don't touch pricing (status, number…) skip this, so legacy plots without a rate stay editable.
         if self.partial and "size" not in attrs and "rate_per_sq_yd" not in attrs:
             return
+        if "price" in attrs and attrs.get("rate_per_sq_yd", getattr(self.instance, "rate_per_sq_yd", None)) is None:
+            return  # a hand-set price needs no rate
         size = attrs.get("size", getattr(self.instance, "size", None))
         rate = attrs.get("rate_per_sq_yd", getattr(self.instance, "rate_per_sq_yd", None))
         if rate is None:
@@ -177,7 +200,33 @@ class CustomerPlotDetailSerializer(serializers.ModelSerializer):
             "plot_number",
             "size",
             "block_sector",
+            "phase",
             "status",
             "booking_date",
             "total_value",
+        ]
+
+
+class CustomerProjectSerializer(serializers.ModelSerializer):
+    """Published projects for the app: the home screen showcase and the KYC Step 1 project / phase dropdowns."""
+
+    images = ProjectImageSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Project
+        fields = [
+            "id",
+            "name",
+            "location",
+            "latitude",
+            "longitude",
+            "description",
+            "amenities",
+            "phases",
+            "legal_fee",
+            "registry_charges",
+            "development_charges",
+            "brochure",
+            "development_status",
+            "images",
         ]

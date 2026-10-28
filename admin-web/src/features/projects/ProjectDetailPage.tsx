@@ -260,6 +260,29 @@ export function ProjectDetailPage() {
                   <p className="text-sm text-ink-300">None listed.</p>
                 )}
               </div>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-400">Phases</h4>
+                  <p className="text-sm text-ink-700">{project.phases.length ? project.phases.join(' · ') : <span className="text-ink-300">None</span>}</p>
+                </div>
+                <div>
+                  <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-400">Additional charges</h4>
+                  <dl className="space-y-1 text-sm">
+                    {(
+                      [
+                        ['Legal fee', project.legal_fee],
+                        ['Registry charges', project.registry_charges],
+                        ['Development charges', project.development_charges],
+                      ] as const
+                    ).map(([label, value]) => (
+                      <div key={label} className="flex justify-between gap-3">
+                        <dt className="text-ink-400">{label}</dt>
+                        <dd className="text-right text-ink-700">{value || '—'}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </div>
+              </div>
             </CardBody>
           </Card>
 

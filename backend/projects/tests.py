@@ -110,6 +110,22 @@ class AssignPaymentTermsTests(TestCase):
         self.assertEqual(res.status_code, 200, res.content)
         self.assertEqual([m.due_date.isoformat() for m in self.plot.milestones.filter(sequence__gte=2).order_by("sequence")], due)
 
+    def test_approval_saves_the_reviewed_amounts(self):
+        self._assign()
+        amounts = ["100000", "80000", "60000"]  # 300000 - 60000 booking
+        res = self._decide(self._pending_step2(), total_value="300000", instalment_count=4, amounts=amounts)
+        self.assertEqual(res.status_code, 200, res.content)
+        ms = self.plot.milestones.filter(sequence__gte=2).order_by("sequence")
+        self.assertEqual([m.amount for m in ms], [Decimal(a) for a in amounts])
+
+    def test_reviewed_amounts_must_add_up(self):
+        self._assign()
+        submission = self._pending_step2()
+        res = self._decide(submission, total_value="300000", instalment_count=4, amounts=["1", "2", "3"])
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.json()["errors"]["code"], "schedule_total_mismatch")
+        self.assertEqual(KYCSubmission.objects.get(pk=submission.pk).step2_status, StepStatus.PENDING)
+
     def test_due_dates_must_be_in_order_and_complete(self):
         self._assign()
         submission = self._pending_step2()
@@ -150,3 +166,69 @@ class AssignPaymentTermsTests(TestCase):
         self._assign(total_value="300000", instalment_count=4)
         res = self._assign(email="co@example.com", role="CO_APPLICANT")
         self.assertEqual(res.status_code, 200, res.content)
+
+
+@mock.patch("documents.services.notify_customer")
+class PricesAndDocumentsTests(TestCase):
+    """Prices stay editable, the allotment letter follows 50% paid, and project documents reach every buyer."""
+
+    def setUp(self):
+        from payments.models import Milestone
+
+        self.project = Project.objects.create(name="Lakeview", is_published=True)
+        self.plot = Plot.objects.create(
+            project=self.project, plot_number="A-1", size="200", rate_per_sq_yd=Decimal("1500"),
+            price=Decimal("0"), total_value=Decimal("300000"), instalment_count=3,
+        )
+        self.buyer = Customer.objects.create(email="buyer@example.com", assigned_plot=self.plot, plot_role="PRIMARY", kyc_status="APPROVED")
+        self.milestones = [
+            Milestone.objects.create(plot=self.plot, sequence=i, name=f"Instalment {i}", amount=Decimal("100000"), due_date=date(2027, i, 1))
+            for i in (1, 2, 3)
+        ]
+        self.client = APIClient()
+        self.client.force_authenticate(AdminUser.objects.create_user("admin@example.com", "pw", role=AdminUser.Role.SUPER_ADMIN))
+
+    def _mark_paid(self, milestone):
+        res = self.client.patch(f"/api/admin/milestones/{milestone.pk}/", {"status": "PAID", "paid_date": "2027-01-01"}, format="json")
+        self.assertEqual(res.status_code, 200, res.content)
+
+    def _letters(self):
+        return self.buyer.documents.filter(doc_type="ALLOTMENT_LETTER")
+
+    def test_allotment_letter_issued_once_half_is_paid(self, _notify):
+        self._mark_paid(self.milestones[0])
+        self.assertFalse(self._letters().exists())  # 1/3 paid
+        self._mark_paid(self.milestones[1])
+        self.assertEqual(self._letters().count(), 1)
+        self.assertTrue(self._letters().first().file.name.endswith(".pdf"))
+        self._mark_paid(self.milestones[2])
+        self.assertEqual(self._letters().count(), 1)  # not re-issued
+
+    def test_selling_price_change_resplits_unpaid_instalments(self, _notify):
+        self._mark_paid(self.milestones[0])
+        res = self.client.patch(f"/api/admin/plots/{self.plot.pk}/", {"total_value": "360000"}, format="json")
+        self.assertEqual(res.status_code, 200, res.content)
+        unpaid = self.plot.milestones.filter(sequence__gte=2).order_by("sequence")
+        self.assertEqual([m.amount for m in unpaid], [Decimal("130000"), Decimal("130000")])
+
+    def test_list_price_can_be_set_by_hand(self, _notify):
+        self.plot.refresh_from_db()
+        self.assertEqual(self.plot.price, Decimal("300000.00"))  # 200 x 1500
+        res = self.client.patch(f"/api/admin/plots/{self.plot.pk}/", {"price": "320000"}, format="json")
+        self.assertEqual(res.json()["price"], "320000.00")
+        self.assertTrue(res.json()["price_is_manual"])
+        res = self.client.patch(f"/api/admin/plots/{self.plot.pk}/", {"rate_per_sq_yd": "1600"}, format="json")
+        self.assertEqual(res.json()["price"], "320000.00")  # derived again: 200 x 1600
+        self.assertFalse(res.json()["price_is_manual"])
+
+    def test_project_documents_reach_every_buyer_in_the_project(self, _notify):
+        from accounts.authentication import issue_customer_tokens
+        from documents.models import Document
+
+        Document.objects.create(project=self.project, name="Layout approval", doc_type="PROJECT", status="ISSUED")
+        Document.objects.create(project=Project.objects.create(name="Other"), name="Elsewhere", doc_type="PROJECT", status="ISSUED")
+        app = APIClient()
+        app.credentials(HTTP_AUTHORIZATION=f"Bearer {issue_customer_tokens(self.buyer)['access']}")
+        res = app.get("/api/customer/documents/")
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual([d["name"] for d in res.json()["results"]], ["Layout approval"])

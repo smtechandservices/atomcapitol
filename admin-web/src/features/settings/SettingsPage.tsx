@@ -48,6 +48,15 @@ function SettingsForm({ initial }: { initial: CompanySettings }) {
             <FieldWrap label="Company name">
               <Input value={form.company_name} onChange={(e) => setForm({ ...form, company_name: e.target.value })} />
             </FieldWrap>
+            <FieldWrap label="About the company" hint="Shown on the home screen of the customer app">
+              <Textarea rows={4} value={form.company_about} onChange={(e) => setForm({ ...form, company_about: e.target.value })} />
+            </FieldWrap>
+            <FieldWrap label="Office address">
+              <Textarea rows={2} value={form.company_address} onChange={(e) => setForm({ ...form, company_address: e.target.value })} />
+            </FieldWrap>
+            <FieldWrap label="Website">
+              <Input type="url" value={form.company_website} onChange={(e) => setForm({ ...form, company_website: e.target.value })} placeholder="https://" />
+            </FieldWrap>
             <FieldWrap label="Support phone">
               <Input value={form.support_phone} onChange={(e) => setForm({ ...form, support_phone: e.target.value })} />
             </FieldWrap>
