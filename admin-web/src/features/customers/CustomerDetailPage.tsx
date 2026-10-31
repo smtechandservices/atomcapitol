@@ -28,6 +28,7 @@ import { useAllProjects } from '@/features/projects/api'
 import { useCan } from '@/lib/permissions'
 import { DeleteCustomerModal } from './DeleteCustomerModal'
 import { AccountControls } from './AccountControls'
+import { KycDocumentsCard } from './KycDocumentsCard'
 import { NewTag } from './CustomersPage'
 import { AssignPlotFields, assignPlotReady, emptyAssignPlot, toAssignPayload, type AssignPlotValue } from '@/features/plots/AssignPlotFields'
 
@@ -46,6 +47,8 @@ export function CustomerDetailPage() {
   const canSales = can('sales')
   const canPlots = can('projects')
   const canEdit = can('customerEdit')
+  // KYC files are for super admins and KYC reviewers only; the backend leaves kyc_documents out for other roles.
+  const canKyc = can('kyc')
   const [deleteOpen, setDeleteOpen] = useState(false)
   const { data: salesPeople } = useAllSalesPeople(canSales)
   const salesPerson = useSalesPerson(canSales ? customer?.assigned_sales_person : null)
@@ -242,6 +245,8 @@ export function CustomerDetailPage() {
               )}
             </CardBody>
           </Card>
+
+          {canKyc && <KycDocumentsCard kyc={customer.kyc_documents} />}
 
           {canPay && (
           <Card>

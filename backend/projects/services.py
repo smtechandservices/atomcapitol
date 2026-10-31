@@ -112,7 +112,7 @@ def transfer_plot(plot, current_customer, new_email, *, reason="", performed_by=
 
 
 def bulk_import_plots_csv(project, file_obj):
-    """Columns: plot_number,size,block_sector,rate_per_sq_yd,plc_percent,plc_type"""
+    """Columns: plot_number,size,phase,rate_per_sq_yd,plc_percent,plc_type (block_sector is read as phase in older sheets)"""
     decoded = io.TextIOWrapper(file_obj.file, encoding="utf-8-sig")
     reader = csv.DictReader(decoded)
     created, errors = [], []
@@ -130,7 +130,7 @@ def bulk_import_plots_csv(project, file_obj):
                 plot_number=row["plot_number"].strip(),
                 defaults={
                     "size": size,
-                    "block_sector": (row.get("block_sector") or "").strip(),
+                    "phase": (row.get("phase") or row.get("block_sector") or "").strip(),
                     "rate_per_sq_yd": rate,
                     "plc_percent": plc_percent,
                     "plc_type": (row.get("plc_type") or "").strip(),

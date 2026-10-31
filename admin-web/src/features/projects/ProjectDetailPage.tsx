@@ -332,7 +332,7 @@ export function ProjectDetailPage() {
                     <thead>
                       <tr className="border-b border-ink-100 bg-ink-50/60 text-xs font-semibold uppercase tracking-wide text-ink-400">
                         <th className="px-3 py-2">Plot</th>
-                        <th className="px-3 py-2">Block / sector</th>
+                        <th className="px-3 py-2">Phase / sector</th>
                         <th className="px-3 py-2">Size</th>
                         <th className="px-3 py-2 text-right">Price</th>
                         <th className="px-3 py-2">Status</th>
@@ -342,7 +342,7 @@ export function ProjectDetailPage() {
                       {plots.results.slice(0, 6).map((pl) => (
                         <tr key={pl.id} className="text-ink-700">
                           <td className="px-3 py-2 font-medium text-ink-800">{pl.plot_number}</td>
-                          <td className="px-3 py-2">{pl.block_sector || '—'}</td>
+                          <td className="px-3 py-2">{pl.phase || '—'}</td>
                           <td className="px-3 py-2">{pl.size}</td>
                           <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(pl.price)}</td>
                           <td className="px-3 py-2">

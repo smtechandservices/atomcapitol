@@ -200,7 +200,7 @@ function ReviewScreen({ id }: { id: string }) {
           <Info label="Project" value={s.plot.project.name} />
           <Info label="Plot" value={s.plot.plot_number} />
           <Info label="Size" value={s.plot.size} />
-          <Info label="Block / sector" value={s.plot.block_sector || '—'} />
+          <Info label="Phase / sector" value={s.plot.phase || '—'} />
           <Info
             label={s.plot_terms?.total_value ? 'Offered price' : 'List price'}
             value={formatCurrency(s.plot_terms?.total_value ?? s.plot_terms?.price ?? s.plot.total_value)}

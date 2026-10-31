@@ -106,7 +106,7 @@ export interface Plot {
   project_name: string
   plot_number: string
   size: string
-  block_sector: string
+  /** Also the plot's block / sector (the two were merged). */
   phase: string
   rate_per_sq_yd: string | null
   plc_percent: string
@@ -187,8 +187,34 @@ export interface CustomerPlotSummary {
   project_name: string
   plot_number: string
   size: string
+  /** The plot's phase, under the name the customer app reads. */
   block_sector: string
   status: PlotStatus
+}
+
+export type KycDocumentField =
+  | 'photo'
+  | 'aadhaar_front'
+  | 'aadhaar_back'
+  | 'pan_card'
+  | 'cancelled_cheque'
+  | 'receipt_file'
+  | 'co_applicant_photo'
+  | 'co_applicant_aadhaar_front'
+  | 'co_applicant_aadhaar_back'
+  | 'co_applicant_pan_card'
+  | 'video_file'
+
+export interface CustomerKycDocuments {
+  /** Opens at /kyc/<submission_id>. */
+  submission_id: number
+  step1_submitted_at: string | null
+  step2_status: KYCStepStatus | null
+  step2_submitted_at: string | null
+  step3_status: KYCStepStatus | null
+  step3_submitted_at: string | null
+  co_applicant_name: string
+  files: Record<KycDocumentField, string | null>
 }
 
 export interface CustomerDetail {
@@ -202,6 +228,8 @@ export interface CustomerDetail {
   /** Signed up from the app rather than added by an admin. */
   is_self_registered: boolean
   claimed_plot: (ClaimedPlot & { submitted_at: string; aadhaar_front: string | null; aadhaar_back: string | null; pan_card: string | null }) | null
+  /** Every file sent for KYC (Steps 1-3), whatever the plot or review state; null before any KYC. */
+  kyc_documents: CustomerKycDocuments | null
   plot: CustomerPlotSummary | null
   plot_role: PlotRole | null
   /** Expected instalment 1 until KYC Step 2 approval records it; null once it exists. */
@@ -267,7 +295,7 @@ export interface KycQueueDetail {
     project: Project
     plot_number: string
     size: string
-    block_sector: string
+    phase: string
     status: PlotStatus
     booking_date: string | null
     total_value: string | null

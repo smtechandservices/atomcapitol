@@ -43,7 +43,7 @@ class CustomerPlotSummarySerializer(serializers.Serializer):
     project_name = serializers.CharField(source="project.name")
     plot_number = serializers.CharField()
     size = serializers.CharField()
-    block_sector = serializers.CharField()
+    block_sector = serializers.CharField(source="phase")  # the app's old name for the phase
     status = serializers.CharField()
 
 
@@ -218,9 +218,14 @@ class CustomerAdminCreateSerializer(serializers.ModelSerializer):
         return value.lower()
 
 
+# Admin roles that may see a customer's KYC files on their customer page.
+KYC_DOCUMENT_ROLES = ("SUPER_ADMIN", "KYC_REVIEWER")
+
+
 class CustomerAdminDetailSerializer(serializers.ModelSerializer):
     plot = serializers.SerializerMethodField()
     claimed_plot = serializers.SerializerMethodField()
+    kyc_documents = serializers.SerializerMethodField()
     booking_payment = serializers.SerializerMethodField()
     sales_person_id = serializers.IntegerField(source="assigned_sales_person_id", read_only=True)
 
@@ -236,6 +241,7 @@ class CustomerAdminDetailSerializer(serializers.ModelSerializer):
             "is_active",
             "is_self_registered",
             "claimed_plot",
+            "kyc_documents",
             "plot",
             "plot_role",
             "booking_payment",
@@ -269,6 +275,28 @@ class CustomerAdminDetailSerializer(serializers.ModelSerializer):
             "plot_number": step1.claimed_plot_number,
             "submitted_at": step1.step1_submitted_at,
             **files,
+        }
+
+    def get_kyc_documents(self, obj):
+        """Every file the customer sent for KYC (Steps 1-3), whatever their plot or review state; None before any,
+        and for admins outside KYC_DOCUMENT_ROLES (the customer page is open to Accounts and Support too)."""
+        from kyc.serializers import KYC_DOCUMENT_FIELDS
+
+        request = self.context.get("request")
+        if getattr(getattr(request, "user", None), "role", None) not in KYC_DOCUMENT_ROLES:
+            return None
+        submission = getattr(obj, "kyc_submission", None)
+        if submission is None:
+            return None
+        return {
+            "submission_id": submission.id,
+            "step1_submitted_at": submission.step1_submitted_at,
+            "step2_status": submission.step2_status,
+            "step2_submitted_at": submission.step2_submitted_at,
+            "step3_status": submission.step3_status,
+            "step3_submitted_at": submission.step3_submitted_at,
+            "co_applicant_name": submission.co_applicant_name,
+            "files": {f: getattr(submission, f).url if getattr(submission, f) else None for f in (*KYC_DOCUMENT_FIELDS, "video_file")},
         }
 
     def get_plot(self, obj):

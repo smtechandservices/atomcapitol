@@ -173,7 +173,7 @@ class Command(BaseCommand):
                     project=p,
                     plot_number=f"{'ABC'[p_idx]}-{100 + n}",
                     size=f"{size} sq.ft",
-                    block_sector=f"Block {'ABC'[n % 3]}",
+                    phase=f"Block {'ABC'[n % 3]}",
                     price=Decimal(size * 4500),
                 )
                 self.plots[(p_idx, n)] = plot

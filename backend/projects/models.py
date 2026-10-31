@@ -67,7 +67,7 @@ class Plot(TimeStampedModel):
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="plots")
     plot_number = models.CharField(max_length=50)
     size = models.CharField(max_length=50, help_text="Area in sq. yd, e.g. 200")
-    block_sector = models.CharField(max_length=50, blank=True)
+    # Also the plot's block / sector: one field, shown to buyers and picked in KYC Step 1.
     phase = models.CharField(max_length=100, blank=True)
     rate_per_sq_yd = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     plc_percent = models.DecimalField(

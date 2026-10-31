@@ -79,7 +79,6 @@ class PlotSerializer(serializers.ModelSerializer):
             "project_name",
             "plot_number",
             "size",
-            "block_sector",
             "phase",
             "rate_per_sq_yd",
             "plc_percent",
@@ -190,6 +189,9 @@ class PlotTransferSerializer(serializers.Serializer):
 # CustomerApp — 5.2 Township & Plot Details
 # ---------------------------------------------------------------------------
 class CustomerPlotDetailSerializer(serializers.ModelSerializer):
+    # The app still reads block_sector; it's the phase now (the two were merged).
+    block_sector = serializers.CharField(source="phase", read_only=True)
+
     project = ProjectSerializer(read_only=True)
 
     class Meta:

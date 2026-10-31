@@ -105,7 +105,7 @@ class PlotViewSet(viewsets.ModelViewSet):
     permission_classes = [role_required("SUPER_ADMIN", "ACCOUNTS")]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ["project", "status"]
-    search_fields = ["plot_number", "block_sector"]
+    search_fields = ["plot_number", "phase"]
 
     def get_permissions(self):
         # Accounts manage inventory (create, import, assign) but editing/deleting a plot is super admin only.

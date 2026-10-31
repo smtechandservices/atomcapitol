@@ -28,6 +28,7 @@ import { useToast } from '@/components/ui/Toast'
 import { apiErrorMessage } from '@/lib/api'
 import { formatCurrency } from '@/lib/format'
 import { useAllProjects } from '@/features/projects/api'
+import { PhaseInput } from './PhaseInput'
 import type { Plot, PlotStatus } from '@/types'
 import {
   useBulkAssignPlots,
@@ -50,18 +51,18 @@ const emptyForm: PlotFormValues = {
   project: 0,
   plot_number: '',
   size: '',
-  block_sector: '',
+  phase: '',
   rate_per_sq_yd: '',
   plc_percent: '',
   plc_type: '',
 }
 
-const IMPORT_COLUMNS = ['plot_number', 'size', 'block_sector', 'rate_per_sq_yd', 'plc_percent', 'plc_type']
+const IMPORT_COLUMNS = ['plot_number', 'size', 'phase', 'rate_per_sq_yd', 'plc_percent', 'plc_type']
 const IMPORT_SAMPLE = [
   IMPORT_COLUMNS.join(','),
-  'A-101,200,Block A,25000,10,Corner',
-  'A-102,150,Block A,25000,5,Park facing',
-  'A-103,180,Block A,25000,0,',
+  'A-101,200,Phase 1,25000,10,Corner',
+  'A-102,150,Phase 1,25000,5,Park facing',
+  'A-103,180,Phase 1,25000,0,',
 ]
 
 const ASSIGN_COLUMNS = ['project', 'plot_number', 'email', 'role', 'name', 'phone', 'total_value', 'amount_paid_outside_app', 'instalment_count']
@@ -139,7 +140,7 @@ export function PlotsPage() {
           </span>
           <div className="min-w-0">
             <p className="font-semibold text-ink-800">{p.plot_number}</p>
-            <p className="text-xs text-ink-400">{p.block_sector || 'No block/sector'}</p>
+            <p className="text-xs text-ink-400">{p.phase || 'No phase'}</p>
           </div>
         </div>
       ),
@@ -391,9 +392,7 @@ export function PlotsPage() {
             <FieldWrap label="Plot number" required>
               <Input autoFocus value={form.plot_number} onChange={(e) => setForm({ ...form, plot_number: e.target.value })} placeholder="e.g. A-101" />
             </FieldWrap>
-            <FieldWrap label="Block / Sector">
-              <Input value={form.block_sector} onChange={(e) => setForm({ ...form, block_sector: e.target.value })} placeholder="e.g. Sector 4" />
-            </FieldWrap>
+            <PhaseInput projectId={form.project || undefined} value={form.phase ?? ''} onChange={(phase) => setForm({ ...form, phase })} />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <FieldWrap label="Size (sq. yd)" required>

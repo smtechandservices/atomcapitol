@@ -65,7 +65,6 @@ export interface PlotFormValues {
   project: number
   plot_number: string
   size: string
-  block_sector?: string
   phase?: string
   rate_per_sq_yd: string
   plc_percent: string

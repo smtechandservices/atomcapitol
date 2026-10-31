@@ -218,3 +218,29 @@ class SelfSignupFlowTests(TestCase):
         res = self.client.post("/api/customer/auth/login/", {"email": "blocked@example.com"})
         self.assertEqual(res.status_code, 403)
         self.assertEqual(len(mail.outbox), 0)
+
+    def test_customer_detail_lists_every_kyc_document(self):
+        self._sign_in("new@example.com")
+        self.assertEqual(self._step1(co_applicant_name="Asha", co_applicant_aadhaar_front=_image("co-a.png"),
+                                     co_applicant_pan_card=_image("co-p.png"), co_applicant_photo=_image("co-me.png")).status_code, 201)
+        customer = Customer.objects.get(email="new@example.com")
+        assign_plot(self.plot, customer.email, role="PRIMARY")  # the plot claim (and its ID files) goes away once assigned
+
+        body = self.admin_client.get(f"/api/admin/customers/{customer.id}/").json()
+        self.assertIsNone(body["claimed_plot"])
+        docs = body["kyc_documents"]
+        self.assertEqual(docs["co_applicant_name"], "Asha")
+        uploaded = {f for f, url in docs["files"].items() if url}
+        self.assertEqual(
+            uploaded,
+            {"receipt_file", "aadhaar_front", "pan_card", "photo", "cancelled_cheque", "co_applicant_aadhaar_front", "co_applicant_pan_card", "co_applicant_photo"},
+        )
+        self.assertIsNone(docs["files"]["video_file"])
+
+        # Accounts and Support can open the customer page but not the KYC files.
+        for role in (AdminUser.Role.ACCOUNTS, AdminUser.Role.SUPPORT):
+            other = APIClient()
+            other.force_authenticate(AdminUser.objects.create_user(f"{role.lower()}@example.com", "pw", role=role))
+            res = other.get(f"/api/admin/customers/{customer.id}/")
+            self.assertEqual(res.status_code, 200, res.content)
+            self.assertIsNone(res.json()["kyc_documents"])

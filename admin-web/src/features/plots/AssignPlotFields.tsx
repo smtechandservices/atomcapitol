@@ -145,7 +145,7 @@ export function AssignPlotFields({ value, onChange }: { value: AssignPlotValue; 
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium text-ink-800">
                           {plot.plot_number}
-                          {plot.block_sector && <span className="font-normal text-ink-400"> · {plot.block_sector}</span>}
+                          {plot.phase && <span className="font-normal text-ink-400"> · {plot.phase}</span>}
                         </p>
                         <p className="truncate text-xs text-ink-400">{blocked ?? `${plot.size} · ${formatCurrency(plot.price)}`}</p>
                       </div>

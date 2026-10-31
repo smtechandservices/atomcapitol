@@ -25,7 +25,7 @@ import {
 } from './api'
 import { CustomerPicker, type PickedBuyer } from './CustomerPicker'
 import { DeletePlotModal } from './DeletePlotModal'
-import { useAllProjects } from '@/features/projects/api'
+import { PhaseInput } from './PhaseInput'
 
 type AssignDetails = Omit<AssignPayload, 'email'>
 
@@ -143,8 +143,7 @@ export function PlotDrawer({ plot, onClose }: { plot: Plot; onClose: () => void 
 
         <section className="grid grid-cols-2 gap-3 text-sm">
           <Info label="Size" value={plot.size} />
-          <Info label="Block / Sector" value={plot.block_sector || '—'} />
-          <Info label="Phase" value={plot.phase || '—'} />
+          <Info label="Phase / Sector" value={plot.phase || '—'} />
           <Info label="Price / sq. yd" value={formatCurrency(plot.rate_per_sq_yd)} />
           <Info label="PLC" value={Number(plot.plc_percent) ? `${Number(plot.plc_percent)}%${plot.plc_type ? ` (${plot.plc_type})` : ''}` : '—'} />
           <Info label="List price" value={<>{formatCurrency(plot.price)}{plot.price_is_manual && <span className="ml-1 text-xs text-ink-400">(set by hand)</span>}</>} />
@@ -314,7 +313,6 @@ function EditPlotModal({ plot, onClose }: { plot: Plot; onClose: () => void }) {
   const toast = useToast()
   const update = useUpdatePlot()
   const [plotNumber, setPlotNumber] = useState(plot.plot_number)
-  const [block, setBlock] = useState(plot.block_sector)
   const [size, setSize] = useState(plot.size)
   const [rate, setRate] = useState(plot.rate_per_sq_yd ?? '')
   const [plcPercent, setPlcPercent] = useState(Number(plot.plc_percent) ? String(Number(plot.plc_percent)) : '')
@@ -324,8 +322,6 @@ function EditPlotModal({ plot, onClose }: { plot: Plot; onClose: () => void }) {
   const [manualPrice, setManualPrice] = useState(plot.price_is_manual)
   const [listPrice, setListPrice] = useState(plot.price)
   const [sellingPrice, setSellingPrice] = useState(plot.total_value ?? '')
-  const { data: projects } = useAllProjects()
-  const phases = projects?.find((p) => p.id === plot.project)?.phases ?? []
   const hasBuyers = plot.buyers.length > 0
   // Pricing fields go together: the backend recomputes the total price from size x rate x (1 + PLC%)
   const pricingChanged =
@@ -348,7 +344,6 @@ function EditPlotModal({ plot, onClose }: { plot: Plot; onClose: () => void }) {
         id: plot.id,
         values: {
           plot_number: plotNumber.trim(),
-          block_sector: block.trim(),
           phase: phase.trim(),
           status,
           ...(pricingChanged && {
@@ -393,24 +388,7 @@ function EditPlotModal({ plot, onClose }: { plot: Plot; onClose: () => void }) {
           <FieldWrap label="Plot number" required hint="Must be unique within the project">
             <Input value={plotNumber} onChange={(e) => setPlotNumber(e.target.value)} />
           </FieldWrap>
-          <FieldWrap label="Block / Sector">
-            <Input value={block} onChange={(e) => setBlock(e.target.value)} />
-          </FieldWrap>
-          <FieldWrap label="Phase" hint={phases.length ? undefined : 'Add phases to the project to pick from a list'}>
-            {phases.length ? (
-              <Select value={phase} onChange={(e) => setPhase(e.target.value)}>
-                <option value="">No phase</option>
-                {[...new Set([...phases, ...(phase && !phases.includes(phase) ? [phase] : [])])].map((p) => (
-                  <option key={p} value={p}>
-                    {p}
-                  </option>
-                ))}
-              </Select>
-            ) : (
-              <Input value={phase} onChange={(e) => setPhase(e.target.value)} placeholder="e.g. Phase 1" />
-            )}
-          </FieldWrap>
-          <div />
+          <PhaseInput projectId={plot.project} value={phase} onChange={setPhase} />
           <FieldWrap label="Size (sq. yd)" required>
             <Input type="number" min={0} value={size} onChange={(e) => setSize(e.target.value)} placeholder="e.g. 200" />
           </FieldWrap>
