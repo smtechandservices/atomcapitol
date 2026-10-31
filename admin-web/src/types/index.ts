@@ -425,6 +425,47 @@ export interface ScheduleItem {
 // ---------------------------------------------------------------------------
 // Documents
 // ---------------------------------------------------------------------------
+/** READY = paid 50% (or more) but a buyer has no visible letter yet; ISSUED = every buyer has one. */
+export type AllotmentStatus = 'READY' | 'ISSUED' | 'NOT_DUE'
+
+export interface AllotmentBuyer {
+  id: number
+  name: string
+  email: string
+  plot_role: 'PRIMARY' | 'CO_APPLICANT' | null
+  letter: {
+    id: number
+    file: string | null
+    is_visible_to_customer: boolean
+    /** Last (re-)issued. */
+    issued_at: string
+    /** Admin who issued it by hand; null when it went out automatically. */
+    issued_by: string | null
+  } | null
+}
+
+export interface AllotmentRow {
+  plot: number
+  plot_number: string
+  phase: string
+  project: number
+  project_name: string
+  total_value: string | null
+  /** Paid instalments plus money paid outside the app. */
+  paid: string
+  paid_percent: number | null
+  /** 50% of total_value — the letter goes out automatically at this amount. */
+  threshold_amount: string | null
+  instalments_paid: number
+  instalments_total: number
+  letter_status: AllotmentStatus
+  buyers: AllotmentBuyer[]
+}
+
+export interface AllotmentPage extends Paginated<AllotmentRow> {
+  stats: Record<AllotmentStatus, number>
+}
+
 export interface DocumentItem {
   id: number
   customer: number | null

@@ -55,6 +55,15 @@ def plot_paid_total(plot):
     return paid + outside_app_collected(plot)
 
 
+def paid_total_from(paid_instalments, booking_paid, amount_paid_outside_app):
+    """plot_paid_total from already-summed figures, for lists that annotate many plots at once. `booking_paid` is the
+    paid instalment 1 amount, None while it isn't paid (the outside-app money doesn't count until then)."""
+    paid = Decimal(str(paid_instalments or 0))
+    if booking_paid is None:
+        return paid
+    return paid + max(Decimal(str(amount_paid_outside_app or 0)) - Decimal(str(booking_paid)), Decimal(0))
+
+
 def after_payment_recorded(plot):
     """Follow-ups once money is recorded against a plot: the allotment letter at 50% paid."""
     from documents.services import issue_allotment_letter_if_due

@@ -16,7 +16,7 @@ export const ACCESS = {
   projects: ['ACCOUNTS'], // projects.ProjectViewSet / PlotViewSet
   plotEdit: [], // PlotViewSet update/destroy — super admins only
   projectDelete: [], // ProjectViewSet destroy — super admins only
-  documents: ['ACCOUNTS'], // documents.AdminDocumentViewSet
+  documents: ['ACCOUNTS'], // documents.AdminDocumentViewSet, AdminAllotment*
   sales: [], // sales.SalesPersonViewSet — super admins only
   tickets: ['SUPPORT'], // tickets.AdminTicket*
   campaigns: ['SUPPORT'], // notifications.NotificationCampaignViewSet

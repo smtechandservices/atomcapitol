@@ -282,6 +282,37 @@ def render_allotment_letter_pdf(plot, customer, *, paid, letter_date=None):
     return pdf.finish()
 
 
+def allotment_letter_for(customer, plot):
+    return customer.documents.filter(doc_type=Document.DocType.ALLOTMENT_LETTER, project=plot.project).order_by("-created_at").first()
+
+
+def issue_allotment_letter(plot, customer, *, paid, issued_by=None):
+    """Puts the buyer's allotment letter in their Documents and notifies them. An existing letter for the plot's
+    project is re-rendered with today's figures and shown again (if it was hidden) instead of adding a second one."""
+    document = allotment_letter_for(customer, plot)
+    if document is None:
+        document = Document(
+            customer=customer,
+            project=plot.project,
+            name=f"Allotment Letter - Plot {plot.plot_number}",
+            doc_type=Document.DocType.ALLOTMENT_LETTER,
+        )
+    if issued_by is not None:
+        document.uploaded_by = issued_by
+    document.status = Document.DocStatus.ISSUED
+    document.is_visible_to_customer = True
+    pdf_bytes = render_allotment_letter_pdf(plot, customer, paid=paid)
+    document.file.save(f"allotment_letter_{plot.plot_number}_{customer.id}.pdf", ContentFile(pdf_bytes), save=True)
+    notify_customer(
+        customer,
+        "DOCUMENT_UPLOADED",
+        "Your allotment letter is ready",
+        f"Your allotment letter for plot {plot.plot_number} is now available in Documents.",
+        deep_link=f"document:{document.id}",
+    )
+    return document
+
+
 def issue_allotment_letter_if_due(plot):
     """Issues the allotment letter to each buyer on the plot (primary and co-applicants) once at least half of
     total_value is paid. Each buyer gets it once; later payments don't re-issue it."""
@@ -292,26 +323,8 @@ def issue_allotment_letter_if_due(plot):
     paid = plot_paid_total(plot)
     if paid < plot.total_value * ALLOTMENT_THRESHOLD:
         return []
-
-    issued = []
-    for customer in plot.customers.filter(is_active=True):
-        if customer.documents.filter(doc_type=Document.DocType.ALLOTMENT_LETTER, project=plot.project).exists():
-            continue
-        document = Document.objects.create(
-            customer=customer,
-            project=plot.project,
-            name=f"Allotment Letter - Plot {plot.plot_number}",
-            doc_type=Document.DocType.ALLOTMENT_LETTER,
-            status=Document.DocStatus.ISSUED,
-        )
-        pdf_bytes = render_allotment_letter_pdf(plot, customer, paid=paid)
-        document.file.save(f"allotment_letter_{plot.plot_number}_{customer.id}.pdf", ContentFile(pdf_bytes), save=True)
-        notify_customer(
-            customer,
-            "DOCUMENT_UPLOADED",
-            "Your allotment letter is ready",
-            f"Your allotment letter for plot {plot.plot_number} is now available in Documents.",
-            deep_link=f"document:{document.id}",
-        )
-        issued.append(document)
-    return issued
+    return [
+        issue_allotment_letter(plot, customer, paid=paid)
+        for customer in plot.customers.filter(is_active=True)
+        if allotment_letter_for(customer, plot) is None
+    ]

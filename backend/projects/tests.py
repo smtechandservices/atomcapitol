@@ -232,3 +232,63 @@ class PricesAndDocumentsTests(TestCase):
         res = app.get("/api/customer/documents/")
         self.assertEqual(res.status_code, 200, res.content)
         self.assertEqual([d["name"] for d in res.json()["results"]], ["Layout approval"])
+
+    def _allotment_row(self, **params):
+        res = self.client.get("/api/admin/allotments/", params)
+        self.assertEqual(res.status_code, 200, res.content)
+        return res.json()
+
+    def test_allotment_list_tracks_paid_share_and_letters(self, _notify):
+        from payments.services import plot_paid_total
+
+        Plot.objects.filter(pk=self.plot.pk).update(amount_paid_outside_app=Decimal("120000"))
+        row = self._allotment_row()["results"][0]
+        self.assertEqual(row["paid"], "0.00")  # outside-app money counts once instalment 1 is paid
+        self._mark_paid(self.milestones[0])
+        row = self._allotment_row()["results"][0]
+        self.assertEqual(row["paid"], str(plot_paid_total(Plot.objects.get(pk=self.plot.pk))))
+        self.assertEqual((row["paid"], row["paid_percent"], row["instalments_paid"], row["instalments_total"]), ("120000.00", 40.0, 1, 3))
+        self.assertEqual(row["letter_status"], "NOT_DUE")
+        self.assertIsNone(row["buyers"][0]["letter"])
+
+        self._mark_paid(self.milestones[1])
+        row = self._allotment_row()["results"][0]
+        self.assertEqual(row["letter_status"], "ISSUED")
+        self.assertTrue(row["buyers"][0]["letter"]["is_visible_to_customer"])
+
+        # A co-applicant added after the letter went out still needs theirs.
+        Customer.objects.create(email="co@example.com", assigned_plot=self.plot, plot_role="CO_APPLICANT")
+        data = self._allotment_row(letter_status="READY")
+        self.assertEqual(data["stats"], {"READY": 1, "ISSUED": 0, "NOT_DUE": 0})
+        self.assertEqual([b["email"] for b in data["results"][0]["buyers"]], ["buyer@example.com", "co@example.com"])  # primary first
+        self.assertEqual(self._allotment_row(search="nobody")["count"], 0)
+
+    def test_allotment_letter_can_be_issued_by_hand(self, _notify):
+        url = f"/api/admin/allotments/{self.plot.pk}/issue/"
+        res = self.client.post(url, {}, format="json")  # nothing paid yet: an early, manual letter
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.json()["letter_status"], "ISSUED")
+        letter = self._letters().get()
+        self.assertTrue(letter.is_visible_to_customer)
+        self.assertEqual(letter.uploaded_by.email, "admin@example.com")
+
+        # Re-issuing a hidden letter shares it again without adding a second one.
+        letter.is_visible_to_customer = False
+        letter.save()
+        self.assertEqual(self._allotment_row()["results"][0]["letter_status"], "NOT_DUE")
+        res = self.client.post(url, {"customers": [self.buyer.pk]}, format="json")
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(self._letters().count(), 1)
+        self.assertTrue(self._letters().get().is_visible_to_customer)
+
+        # Reaching 50% later doesn't issue a second letter either.
+        self._mark_paid(self.milestones[0])
+        self._mark_paid(self.milestones[1])
+        self.assertEqual(self._letters().count(), 1)
+
+    def test_allotment_letter_needs_a_selling_price(self, _notify):
+        self.plot.total_value = None
+        self.plot.save()
+        res = self.client.post(f"/api/admin/allotments/{self.plot.pk}/issue/", {}, format="json")
+        self.assertEqual(res.status_code, 400, res.content)
+        self.assertEqual(res.json()["errors"]["code"], "no_total_value")

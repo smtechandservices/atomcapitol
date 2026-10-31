@@ -9,6 +9,7 @@ import {
   Repeat,
   BarChart3,
   FolderOpen,
+  Award,
   Ticket,
   Image as ImageIcon,
   Bell,
@@ -65,6 +66,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'Documents & Tickets',
     items: [
       { to: '/documents', label: 'Documents', icon: FolderOpen, roles: ['SUPER_ADMIN', 'ACCOUNTS'] },
+      { to: '/allotments', label: 'Allotment Letters', icon: Award, roles: ['SUPER_ADMIN', 'ACCOUNTS'] },
       { to: '/tickets', label: 'Tickets', icon: Ticket, roles: ['SUPER_ADMIN', 'SUPPORT'] },
     ],
   },
